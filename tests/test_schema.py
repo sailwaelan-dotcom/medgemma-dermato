@@ -5,6 +5,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from medgemma_dermato.prompts import build_triage_inference_messages
 from medgemma_dermato.schema import (
     DermoscopyAssessment,
     SemiologyCriteria,
@@ -188,3 +189,19 @@ def test_triage_schema_and_entity_mapping() -> None:
     assert err is None
     assert parsed is not None
     assert parsed.entity_category == "melanoma"
+
+    msgs = build_triage_inference_messages({"age_approx": 55, "sex": "female"})
+    user_txt = msgs[1]["content"][1]["text"]
+    assert '"properties"' not in user_txt
+    assert "$defs" not in user_txt
+    for field_name in (
+        "image_quality_adequate",
+        "melanocytic_pattern",
+        "entity_category",
+        "research_triage_label",
+        "confidence",
+        "abstain",
+        "abstention_reason",
+        "summary_for_referral_fr",
+    ):
+        assert field_name in user_txt

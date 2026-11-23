@@ -45,6 +45,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Prefill empty <unused94>thought\\n<unused95> block for fast direct JSON output.",
     )
+    parser.add_argument(
+        "--fail-fast-invalid",
+        type=int,
+        default=5,
+        help="Abort early if the first N images all fail JSON parsing (0 disables).",
+    )
     return parser.parse_args()
 
 
@@ -99,6 +105,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     predictions_path = args.output_dir / "predictions.jsonl"
     eval_cases: list[EvalCase] = []
+    valid_count = 0
 
     with (
         httpx.Client(timeout=30.0) as http_client,
@@ -175,11 +182,24 @@ def main() -> None:
             pred_file.write(json.dumps(pred_record, ensure_ascii=False) + "\n")
             pred_file.flush()
 
+            if parsed is not None:
+                valid_count += 1
+
             status_tag = "JSON_OK" if parsed is not None else f"PARSE_ERR({(parse_err or '')[:60]})"
             print(
                 f"[{idx}/{len(records)}] {rec.isic_id} | {latency_ms:.0f} ms | {status_tag}",
                 flush=True,
             )
+
+            if (
+                args.fail_fast_invalid > 0
+                and idx >= args.fail_fast_invalid
+                and valid_count == 0
+            ):
+                raise RuntimeError(
+                    f"Fail-fast triggered: 0/{idx} valid JSON outputs. "
+                    f"Last error: {parse_err} | Sample output: {raw_text[:300]!r}"
+                )
 
     report = evaluate_predictions(
         cases=eval_cases,

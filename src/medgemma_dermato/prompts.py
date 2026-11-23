@@ -116,12 +116,30 @@ def build_triage_inference_messages(
     clinical_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build chat messages for MedGemma ground-truth triage & referral inference."""
-    schema_json = json.dumps(TriageAssessment.model_json_schema(), ensure_ascii=False)
     context_line = _format_clinical_context(clinical_context)
     user_text = (
         f"{context_line}\n"
-        "Analyse cette image dermatoscopique et produis uniquement un JSON conforme au schéma "
-        f"suivant :\n{schema_json}"
+        "Analyse cette image dermatoscopique et réponds UNIQUEMENT par une instance JSON "
+        "complétée (ne renvoie pas un JSON Schema avec 'properties' ou 'title') contenant "
+        "exactement ces 8 clés :\n"
+        "- image_quality_adequate: bool (true/false)\n"
+        "- melanocytic_pattern: \"melanocytic\" | \"non_melanocytic\" | \"uncertain\"\n"
+        "- entity_category: \"melanoma\" | \"basal_cell_carcinoma\" | "
+        "\"squamous_cell_carcinoma\" | \"nevus\" | \"benign_keratosis\" | "
+        "\"dermatofibroma\" | \"vascular\" | \"actinic_keratosis_or_indeterminate\" | "
+        "\"other_benign\"\n"
+        "- research_triage_label: \"benign_pattern\" | \"suspicious_malignant_pattern\" | "
+        "\"indeterminate\"\n"
+        "- confidence: float entre 0.0 et 1.0\n"
+        "- abstain: bool (true obligatoire si image_quality_adequate=false, confidence<0.5 "
+        "ou research_triage_label=\"indeterminate\")\n"
+        "- abstention_reason: string non vide si abstain=true, sinon null\n"
+        "- summary_for_referral_fr: courte synthèse médicale en français\n\n"
+        "Format attendu (exemple de structure) :\n"
+        '{"image_quality_adequate": true, "melanocytic_pattern": "melanocytic", '
+        '"entity_category": "nevus", "research_triage_label": "benign_pattern", '
+        '"confidence": 0.80, "abstain": false, "abstention_reason": null, '
+        '"summary_for_referral_fr": "..."}'
     )
     return [
         {
