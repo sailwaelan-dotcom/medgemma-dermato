@@ -7,7 +7,7 @@ preflight:
   min_width: 256
   min_height: 256
   eval_max_side: 512
-  min_laplacian_var: 80.0
+  min_laplacian_var: 55.0
   min_mean_brightness: 35.0
   max_mean_brightness: 225.0
   max_specular_ratio: 0.08

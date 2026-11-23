@@ -21,7 +21,7 @@ class PreflightConfig(BaseModel):
     min_width: int = Field(default=256, ge=64)
     min_height: int = Field(default=256, ge=64)
     eval_max_side: int = Field(default=512, ge=128)
-    min_laplacian_var: float = Field(default=80.0, gt=0.0)
+    min_laplacian_var: float = Field(default=55.0, gt=0.0)
     min_mean_brightness: float = Field(default=35.0, ge=0.0, le=255.0)
     max_mean_brightness: float = Field(default=225.0, ge=0.0, le=255.0)
     max_specular_ratio: float = Field(default=0.08, ge=0.0, le=1.0)

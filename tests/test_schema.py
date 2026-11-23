@@ -9,6 +9,7 @@ from medgemma_dermato.schema import (
     DermoscopyAssessment,
     SemiologyCriteria,
     parse_assessment_json,
+    split_thinking_trace,
 )
 
 
@@ -103,3 +104,24 @@ def test_validator_enforces_abstention_invariants() -> None:
             summary_for_referral_fr="Test",
             research_triage_label="indeterminate",
         )
+
+
+def test_parse_medgemma_thinking_trace_and_truncation() -> None:
+    raw = json.dumps(_valid_payload())
+    with_thought = (
+        "<unused94>thought\nLet's draft {bad_json: true} first.\n"
+        f"<unused95>```json\n{raw}\n```"
+    )
+    thought, answer = split_thinking_trace(with_thought)
+    assert thought is not None and "bad_json" in thought
+    assert raw in answer
+
+    parsed, err = parse_assessment_json(with_thought)
+    assert err is None
+    assert parsed is not None
+    assert parsed.confidence == 0.85
+
+    truncated = "<unused94>thought\nStill reasoning about pigment network..."
+    t_parsed, t_err = parse_assessment_json(truncated)
+    assert t_parsed is None
+    assert t_err is not None and "truncated inside <unused94>thought" in t_err

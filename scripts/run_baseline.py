@@ -16,6 +16,7 @@ from medgemma_dermato.data.isic_ingest import ISICRecord, load_records_jsonl
 from medgemma_dermato.eval.harness import EvalCase, compare_reports, evaluate_predictions
 from medgemma_dermato.preflight import evaluate_image_quality
 from medgemma_dermato.prompts import build_inference_messages
+from medgemma_dermato.schema import parse_assessment_json, split_thinking_trace
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,7 +29,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quantization", type=str, default="BF16")
     parser.add_argument("--run-name", type=str, default="medgemma-1.5-4b-baseline")
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--max-new-tokens", type=int, default=768)
+    parser.add_argument("--max-new-tokens", type=int, default=1536)
+    parser.add_argument(
+        "--disable-thinking",
+        action="store_true",
+        help="Prefill empty <unused94>thought\\n<unused95> block for fast direct JSON output.",
+    )
     return parser.parse_args()
 
 
@@ -95,14 +101,19 @@ def main() -> None:
             }
             messages = build_inference_messages(clinical_context=clinical_ctx)
 
+            prompt_text = processor.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+            if args.disable_thinking:
+                prompt_text = f"{prompt_text}<unused94>thought\n<unused95>"
+
             with Image.open(img_path) as pil_img:
                 rgb_img = pil_img.convert("RGB")
-                messages[1]["content"][0]["image"] = rgb_img
-                inputs = processor.apply_chat_template(
-                    messages,
-                    add_generation_prompt=True,
-                    tokenize=True,
-                    return_dict=True,
+                inputs = processor(
+                    text=[prompt_text],
+                    images=[[rgb_img]],
                     return_tensors="pt",
                 ).to(model.device, dtype=dtype)
 
@@ -118,6 +129,9 @@ def main() -> None:
             output_tokens = generated[0][input_len:]
             raw_text = processor.decode(output_tokens, skip_special_tokens=True)
 
+            thinking_trace, _ = split_thinking_trace(raw_text)
+            parsed, parse_err = parse_assessment_json(raw_text)
+
             case = EvalCase(
                 isic_id=rec.isic_id,
                 ground_truth_malignant=rec.is_malignant,
@@ -130,12 +144,17 @@ def main() -> None:
             pred_record = {
                 "isic_id": rec.isic_id,
                 "preflight": preflight.model_dump(),
+                "thinking_trace": thinking_trace,
                 "eval_case": case.model_dump(),
             }
             pred_file.write(json.dumps(pred_record, ensure_ascii=False) + "\n")
+            pred_file.flush()
 
-            if idx % 10 == 0 or idx == len(records):
-                print(f"Processed {idx}/{len(records)} images...")
+            status_tag = "JSON_OK" if parsed is not None else f"PARSE_ERR({(parse_err or '')[:60]})"
+            print(
+                f"[{idx}/{len(records)}] {rec.isic_id} | {latency_ms:.0f} ms | {status_tag}",
+                flush=True,
+            )
 
     report = evaluate_predictions(
         cases=eval_cases,

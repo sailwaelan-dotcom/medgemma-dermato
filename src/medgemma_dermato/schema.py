@@ -83,6 +83,28 @@ class DermoscopyAssessment(BaseModel):
         return self
 
 
+_THOUGHT_START = "<unused94>"
+_THOUGHT_END = "<unused95>"
+
+
+def split_thinking_trace(raw_text: str) -> tuple[str | None, str]:
+    """Separate MedGemma `<unused94>thought ... <unused95>` trace from final answer."""
+    if _THOUGHT_END in raw_text:
+        thought_part, answer_part = raw_text.rsplit(_THOUGHT_END, 1)
+        cleaned_thought = thought_part
+        if cleaned_thought.startswith(_THOUGHT_START):
+            cleaned_thought = cleaned_thought[len(_THOUGHT_START) :]
+        if cleaned_thought.lstrip().startswith("thought"):
+            cleaned_thought = cleaned_thought.lstrip()[len("thought") :].lstrip()
+        return cleaned_thought.strip(), answer_part.strip()
+    if _THOUGHT_START in raw_text:
+        cleaned_thought = raw_text.split(_THOUGHT_START, 1)[1]
+        if cleaned_thought.lstrip().startswith("thought"):
+            cleaned_thought = cleaned_thought.lstrip()[len("thought") :].lstrip()
+        return cleaned_thought.strip(), ""
+    return None, raw_text
+
+
 def _iter_json_objects(text: str) -> list[str]:
     """Scan all `{` positions and return balanced JSON object substrings."""
     decoder = json.JSONDecoder()
@@ -111,6 +133,14 @@ def parse_assessment_json(raw_text: str) -> tuple[DermoscopyAssessment | None, s
     if not raw_text or not raw_text.strip():
         return None, "Empty model output"
 
+    thought, answer = split_thinking_trace(raw_text)
+    if thought is not None and not answer.strip():
+        return (
+            None,
+            "Model output truncated inside <unused94>thought block "
+            "(increase max_new_tokens or use --disable-thinking)",
+        )
+
     candidates: list[str] = []
     seen: set[str] = set()
 
@@ -119,17 +149,17 @@ def parse_assessment_json(raw_text: str) -> tuple[DermoscopyAssessment | None, s
             seen.add(item)
             candidates.append(item)
 
-    for match in _FENCE_RE.findall(raw_text):
+    for match in _FENCE_RE.findall(answer):
         stripped = match.strip()
         if stripped:
             for obj_str in _iter_json_objects(stripped):
                 _add_candidate(obj_str)
             _add_candidate(stripped)
 
-    for obj_str in _iter_json_objects(raw_text):
+    for obj_str in _iter_json_objects(answer):
         _add_candidate(obj_str)
 
-    _add_candidate(raw_text.strip())
+    _add_candidate(answer.strip())
 
     last_error = "No JSON object found in model output"
     for candidate in candidates:
