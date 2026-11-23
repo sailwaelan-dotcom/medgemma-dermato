@@ -205,3 +205,13 @@ def test_triage_schema_and_entity_mapping() -> None:
         "summary_for_referral_fr",
     ):
         assert field_name in user_txt
+
+    template_section = user_txt.split("Format JSON attendu", 1)[1]
+    for banned_anchor in (
+        "nevus",
+        "melanoma",
+        "benign_pattern",
+        "suspicious_malignant_pattern",
+        "0.80",
+    ):
+        assert banned_anchor not in template_section

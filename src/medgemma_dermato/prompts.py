@@ -135,11 +135,12 @@ def build_triage_inference_messages(
         "ou research_triage_label=\"indeterminate\")\n"
         "- abstention_reason: string non vide si abstain=true, sinon null\n"
         "- summary_for_referral_fr: courte synthèse médicale en français\n\n"
-        "Format attendu (exemple de structure) :\n"
-        '{"image_quality_adequate": true, "melanocytic_pattern": "melanocytic", '
-        '"entity_category": "nevus", "research_triage_label": "benign_pattern", '
-        '"confidence": 0.80, "abstain": false, "abstention_reason": null, '
-        '"summary_for_referral_fr": "..."}'
+        "Format JSON attendu (remplace chaque placeholder par ton évaluation réelle) :\n"
+        '{"image_quality_adequate": <true|false>, "melanocytic_pattern": "<choix>", '
+        '"entity_category": "<choix>", "research_triage_label": "<choix>", '
+        '"confidence": <0.0-1.0>, "abstain": <true|false>, '
+        '"abstention_reason": <string_ou_null>, '
+        '"summary_for_referral_fr": "<synthèse clinique en français>"}'
     )
     return [
         {
