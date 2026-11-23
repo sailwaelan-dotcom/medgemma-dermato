@@ -1,0 +1,26 @@
+# Virtual environments & caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Datasets, model weights & run artifacts
+data/
+outputs/
+checkpoints/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+
+# Secrets & OS files
+.env
+.env.*
+.DS_Store
+Thumbs.db

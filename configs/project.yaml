@@ -1,0 +1,67 @@
+model:
+  base_model_id: "google/medgemma-1.5-4b-it"
+  image_size: 896
+  dtype: "bfloat16"
+
+preflight:
+  min_width: 256
+  min_height: 256
+  eval_max_side: 512
+  min_laplacian_var: 80.0
+  min_mean_brightness: 35.0
+  max_mean_brightness: 225.0
+  max_specular_ratio: 0.08
+  max_hair_ratio: 0.18
+  max_border_dark_ratio: 0.65
+
+data:
+  commercial_licenses:
+    - "CC-0"
+    - "CC-BY"
+    - "CC-BY-4.0"
+  allowed_image_types:
+    - "dermoscopic"
+  # Collections ISIC 2017, ISIC 2018 et HAM10000 exclues du hold-out test set
+  # pour éviter toute fuite avec le pré-entraînement de MedGemma 1.5 4B.
+  excluded_holdout_collections:
+    - 60
+    - 62
+    - 63
+    - 64
+    - 66
+    - 67
+    - 69
+    - 71
+    - 73
+    - 212
+  # Cohortes cross-hospitalières CC-BY post-2018 (évite la pagination ISIC 2017) :
+  # 251 = Hospital Italiano de Buenos Aires (2019-2022) -> train/val
+  # 163 = MSKCC Consecutive biopsies (2020) -> hold-out test externe
+  train_val_collections:
+    - 251
+  external_test_collections:
+    - 163
+  train_ratio: 0.70
+  val_ratio: 0.15
+  test_ratio: 0.15
+  seed: 42
+
+qlora:
+  r: 16
+  lora_alpha: 16
+  lora_dropout: 0.05
+  target_modules: "all-linear"
+  modules_to_save:
+    - "lm_head"
+    - "embed_tokens"
+  learning_rate: 2.0e-4
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  save_steps: 50
+  max_grad_norm: 0.3
+  warmup_ratio: 0.03
+
+eval:
+  abstention_confidence_threshold: 0.60
+  target_malignant_sensitivity: 0.95

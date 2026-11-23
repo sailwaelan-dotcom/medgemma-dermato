@@ -1,0 +1,159 @@
+"""Run MedGemma baseline or adapter inference on a manifest and score with Eval Harness."""
+
+import argparse
+import json
+import time
+import warnings
+from pathlib import Path
+
+import httpx
+import torch
+from PIL import Image
+from transformers import AutoModelForImageTextToText, AutoProcessor
+
+from medgemma_dermato.config import load_config
+from medgemma_dermato.data.isic_ingest import ISICRecord, load_records_jsonl
+from medgemma_dermato.eval.harness import EvalCase, compare_reports, evaluate_predictions
+from medgemma_dermato.preflight import evaluate_image_quality
+from medgemma_dermato.prompts import build_inference_messages
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate MedGemma on a locked ISIC manifest.")
+    parser.add_argument("--manifest", type=Path, required=True, help="Path to test.jsonl manifest.")
+    parser.add_argument("--image-dir", type=Path, default=Path("data/images"))
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/baseline"))
+    parser.add_argument("--config", type=Path, default=Path("configs/project.yaml"))
+    parser.add_argument("--model-id", type=str, default=None)
+    parser.add_argument("--quantization", type=str, default="BF16")
+    parser.add_argument("--run-name", type=str, default="medgemma-1.5-4b-baseline")
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--max-new-tokens", type=int, default=768)
+    return parser.parse_args()
+
+
+def _ensure_image(record: ISICRecord, image_dir: Path, client: httpx.Client) -> Path:
+    image_dir.mkdir(parents=True, exist_ok=True)
+    target = image_dir / f"{record.isic_id}.jpg"
+    if target.exists() and target.stat().st_size > 0:
+        return target
+    if not record.image_url:
+        raise ValueError(f"No image_url for record {record.isic_id}")
+    resp = client.get(record.image_url)
+    resp.raise_for_status()
+    target.write_bytes(resp.content)
+    return target
+
+
+def main() -> None:
+    args = parse_args()
+    cfg = load_config(args.config)
+    model_id = args.model_id or cfg.model.base_model_id
+
+    if not torch.cuda.is_available():
+        warnings.warn("CUDA unavailable: running on CPU will be extremely slow.", stacklevel=1)
+        dtype = torch.float32
+    elif not torch.cuda.is_bf16_supported():
+        warnings.warn(
+            "GPU does not natively support bfloat16 (e.g. T4). "
+            "Prefer L4 or A100 for MedGemma stability.",
+            stacklevel=1,
+        )
+        dtype = torch.float16
+    else:
+        dtype = torch.bfloat16
+
+    records = load_records_jsonl(args.manifest)
+    if args.limit is not None:
+        records = records[: args.limit]
+
+    processor = AutoProcessor.from_pretrained(model_id)
+    model = AutoModelForImageTextToText.from_pretrained(
+        model_id,
+        torch_dtype=dtype,
+        device_map="auto",
+    )
+    model.eval()
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    predictions_path = args.output_dir / "predictions.jsonl"
+    eval_cases: list[EvalCase] = []
+
+    with (
+        httpx.Client(timeout=30.0) as http_client,
+        predictions_path.open("w", encoding="utf-8") as pred_file,
+    ):
+        for idx, rec in enumerate(records, start=1):
+            img_path = _ensure_image(rec, args.image_dir, http_client)
+            preflight = evaluate_image_quality(img_path, cfg.preflight)
+
+            clinical_ctx = {
+                "age_approx": rec.age_approx,
+                "sex": rec.sex,
+                "anatom_site": rec.anatom_site,
+            }
+            messages = build_inference_messages(clinical_context=clinical_ctx)
+
+            with Image.open(img_path) as pil_img:
+                rgb_img = pil_img.convert("RGB")
+                messages[1]["content"][0]["image"] = rgb_img
+                inputs = processor.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    return_dict=True,
+                    return_tensors="pt",
+                ).to(model.device, dtype=dtype)
+
+            input_len = inputs["input_ids"].shape[-1]
+            t0 = time.perf_counter()
+            with torch.inference_mode():
+                generated = model.generate(
+                    **inputs,
+                    max_new_tokens=args.max_new_tokens,
+                    do_sample=False,
+                )
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            output_tokens = generated[0][input_len:]
+            raw_text = processor.decode(output_tokens, skip_special_tokens=True)
+
+            case = EvalCase(
+                isic_id=rec.isic_id,
+                ground_truth_malignant=rec.is_malignant,
+                ground_truth_diagnosis=rec.diagnosis_2 or rec.diagnosis_1,
+                raw_model_output=raw_text,
+                latency_ms=round(latency_ms, 2),
+            )
+            eval_cases.append(case)
+
+            pred_record = {
+                "isic_id": rec.isic_id,
+                "preflight": preflight.model_dump(),
+                "eval_case": case.model_dump(),
+            }
+            pred_file.write(json.dumps(pred_record, ensure_ascii=False) + "\n")
+
+            if idx % 10 == 0 or idx == len(records):
+                print(f"Processed {idx}/{len(records)} images...")
+
+    report = evaluate_predictions(
+        cases=eval_cases,
+        run_name=args.run_name,
+        model_id=model_id,
+        quantization=args.quantization,
+        abstention_threshold=cfg.eval.abstention_confidence_threshold,
+    )
+
+    report_json_path = args.output_dir / "eval_report.json"
+    report_json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    markdown = compare_reports(
+        [report], min_malignant_sensitivity=cfg.eval.target_malignant_sensitivity
+    )
+    report_md_path = args.output_dir / "eval_report.md"
+    report_md_path.write_text(markdown + "\n", encoding="utf-8")
+    print(markdown)
+
+
+if __name__ == "__main__":
+    main()

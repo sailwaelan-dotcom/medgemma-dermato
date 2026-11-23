@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medgemma-dermato"
+version = "0.1.0"
+description = "Hybrid local/Colab dermoscopy semiology pipeline, preflight QA, and evaluation harness for MedGemma 1.5 4B."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "opencv-python-headless>=4.9",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+train = [
+    "torch>=2.4",
+    "transformers>=4.50",
+    "peft>=0.14",
+    "trl>=0.15",
+    "bitsandbytes>=0.45",
+    "accelerate>=1.0",
+    "datasets>=3.0",
+    "huggingface-hub>=0.28",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
