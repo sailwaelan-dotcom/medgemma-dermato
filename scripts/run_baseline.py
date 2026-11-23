@@ -1,4 +1,4 @@
-"""Run MedGemma baseline or adapter inference on a manifest and score with Eval Harness."""
+"""Run MedGemma baseline or LoRA adapter inference and score with Eval Harness."""
 
 import argparse
 import json
@@ -8,6 +8,7 @@ from pathlib import Path
 
 import httpx
 import torch
+from peft import PeftModel
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
@@ -15,8 +16,13 @@ from medgemma_dermato.config import load_config
 from medgemma_dermato.data.isic_ingest import ISICRecord, load_records_jsonl
 from medgemma_dermato.eval.harness import EvalCase, compare_reports, evaluate_predictions
 from medgemma_dermato.preflight import evaluate_image_quality
-from medgemma_dermato.prompts import build_inference_messages
-from medgemma_dermato.schema import parse_assessment_json, split_thinking_trace
+from medgemma_dermato.prompts import build_inference_messages, build_triage_inference_messages
+from medgemma_dermato.schema import (
+    map_isic_to_entity_category,
+    parse_assessment_json,
+    parse_triage_json,
+    split_thinking_trace,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,10 +32,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/baseline"))
     parser.add_argument("--config", type=Path, default=Path("configs/project.yaml"))
     parser.add_argument("--model-id", type=str, default=None)
+    parser.add_argument(
+        "--adapter-path", type=Path, default=None, help="Optional LoRA adapter dir."
+    )
     parser.add_argument("--quantization", type=str, default="BF16")
     parser.add_argument("--run-name", type=str, default="medgemma-1.5-4b-baseline")
+    parser.add_argument("--task", choices=["triage", "semiology"], default="triage")
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--max-new-tokens", type=int, default=1536)
+    parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument(
         "--disable-thinking",
         action="store_true",
@@ -80,6 +90,10 @@ def main() -> None:
         torch_dtype=dtype,
         device_map="auto",
     )
+    if args.adapter_path is not None:
+        print(f"Loading and merging LoRA adapter from {args.adapter_path}...", flush=True)
+        model = PeftModel.from_pretrained(model, str(args.adapter_path))
+        model = model.merge_and_unload()
     model.eval()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +113,10 @@ def main() -> None:
                 "sex": rec.sex,
                 "anatom_site": rec.anatom_site,
             }
-            messages = build_inference_messages(clinical_context=clinical_ctx)
+            if args.task == "triage":
+                messages = build_triage_inference_messages(clinical_context=clinical_ctx)
+            else:
+                messages = build_inference_messages(clinical_context=clinical_ctx)
 
             prompt_text = processor.apply_chat_template(
                 messages,
@@ -130,12 +147,20 @@ def main() -> None:
             raw_text = processor.decode(output_tokens, skip_special_tokens=True)
 
             thinking_trace, _ = split_thinking_trace(raw_text)
-            parsed, parse_err = parse_assessment_json(raw_text)
+            if args.task == "triage":
+                parsed, parse_err = parse_triage_json(raw_text)
+            else:
+                parsed, parse_err = parse_assessment_json(raw_text)
 
+            gt_entity = map_isic_to_entity_category(
+                rec.diagnosis_1, rec.diagnosis_2, rec.diagnosis_3
+            )
             case = EvalCase(
                 isic_id=rec.isic_id,
                 ground_truth_malignant=rec.is_malignant,
-                ground_truth_diagnosis=rec.diagnosis_2 or rec.diagnosis_1,
+                ground_truth_diagnosis=rec.diagnosis_3 or rec.diagnosis_2 or rec.diagnosis_1,
+                ground_truth_entity=gt_entity,
+                ground_truth_is_melanoma=(gt_entity == "melanoma"),
                 raw_model_output=raw_text,
                 latency_ms=round(latency_ms, 2),
             )
@@ -162,6 +187,7 @@ def main() -> None:
         model_id=model_id,
         quantization=args.quantization,
         abstention_threshold=cfg.eval.abstention_confidence_threshold,
+        task_mode=args.task,
     )
 
     report_json_path = args.output_dir / "eval_report.json"

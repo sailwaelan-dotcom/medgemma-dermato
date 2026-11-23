@@ -11,6 +11,7 @@ from medgemma_dermato.data.isic_ingest import (
     is_commercial_license,
     load_records_jsonl,
     parse_isic_api_item,
+    stratified_sample_records,
     verify_split_invariants,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "is_commercial_license",
     "load_records_jsonl",
     "parse_isic_api_item",
+    "stratified_sample_records",
     "verify_split_invariants",
 ]

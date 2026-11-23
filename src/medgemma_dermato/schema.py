@@ -22,6 +22,18 @@ PigmentNetworkLevel = Literal["typical", "atypical", "absent", "uncertain"]
 GlobulesLevel = Literal["regular", "irregular", "absent", "uncertain"]
 VascularLevel = Literal["none", "monomorphic", "polymorphic", "arborizing", "uncertain"]
 ResearchCategory = Literal["benign_pattern", "suspicious_malignant_pattern", "indeterminate"]
+MelanocyticPattern = Literal["melanocytic", "non_melanocytic", "uncertain"]
+EntityCategory = Literal[
+    "melanoma",
+    "basal_cell_carcinoma",
+    "squamous_cell_carcinoma",
+    "nevus",
+    "benign_keratosis",
+    "dermatofibroma",
+    "vascular",
+    "actinic_keratosis_or_indeterminate",
+    "other_benign",
+]
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
@@ -83,6 +95,78 @@ class DermoscopyAssessment(BaseModel):
         return self
 
 
+class TriageAssessment(BaseModel):
+    """Ground-truth-aligned clinical triage output for SFT and hold-out evaluation."""
+
+    image_quality_adequate: bool
+    melanocytic_pattern: MelanocyticPattern
+    entity_category: EntityCategory
+    research_triage_label: ResearchCategory
+    confidence: float = Field(ge=0.0, le=1.0)
+    abstain: bool
+    abstention_reason: str | None = None
+    summary_for_referral_fr: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _enforce_triage_invariants(self) -> "TriageAssessment":
+        requires_abstention = (
+            not self.image_quality_adequate
+            or self.confidence < 0.5
+            or self.research_triage_label == "indeterminate"
+        )
+        if requires_abstention and not self.abstain:
+            raise ValueError(
+                "abstain must be True when image_quality_adequate is False, "
+                "confidence < 0.5, or research_triage_label is indeterminate"
+            )
+        if self.abstain and (not self.abstention_reason or not self.abstention_reason.strip()):
+            raise ValueError("abstention_reason is required when abstain is True")
+        return self
+
+
+def map_isic_to_entity_category(
+    diagnosis_1: str | None,
+    diagnosis_2: str | None,
+    diagnosis_3: str | None,
+) -> EntityCategory:
+    """Deterministically map ISIC Archive clinical hierarchy to EntityCategory."""
+    d1 = (diagnosis_1 or "").strip().lower()
+    d2 = (diagnosis_2 or "").strip().lower()
+    d3 = (diagnosis_3 or "").strip().lower()
+
+    if "melanoma" in d2 or "melanoma" in d3:
+        return "melanoma"
+    if "basal cell" in d3 or "adnexal epithelial" in d2:
+        return "basal_cell_carcinoma"
+    if "squamous cell" in d3 or (d1 == "malignant" and "epidermal" in d2):
+        return "squamous_cell_carcinoma"
+    if "nevus" in d3 or (d1 == "benign" and "benign melanocytic" in d2):
+        return "nevus"
+    if (
+        any(
+            kw in d3
+            for kw in ("seborrheic keratosis", "solar lentigo", "lentigo", "lichen planus")
+        )
+        or (d1 == "benign" and "epidermal" in d2)
+        or "flat melanotic" in d2
+    ):
+        return "benign_keratosis"
+    if "dermatofibroma" in d3 or "fibro-histiocytic" in d2:
+        return "dermatofibroma"
+    if "vascular" in d2 or "vascular" in d3:
+        return "vascular"
+    if (
+        d1 == "indeterminate"
+        or "actinic" in d3
+        or "atypical melanocytic" in d3
+        or "atypical intraepithelial" in d3
+    ):
+        return "actinic_keratosis_or_indeterminate"
+    if d1 == "benign":
+        return "other_benign"
+    return "actinic_keratosis_or_indeterminate"
+
+
 _THOUGHT_START = "<unused94>"
 _THOUGHT_END = "<unused95>"
 
@@ -125,11 +209,11 @@ def _iter_json_objects(text: str) -> list[str]:
     return objects
 
 
-def parse_assessment_json(raw_text: str) -> tuple[DermoscopyAssessment | None, str | None]:
-    """Parse and validate raw model output into DermoscopyAssessment.
-
-    Returns (assessment, None) on success or (None, error_message) on failure.
-    """
+def _parse_model_json[TModel: BaseModel](
+    raw_text: str,
+    model_cls: type[TModel],
+) -> tuple[TModel | None, str | None]:
+    """Parse and validate raw model output into a target Pydantic schema."""
     if not raw_text or not raw_text.strip():
         return None, "Empty model output"
 
@@ -166,8 +250,18 @@ def parse_assessment_json(raw_text: str) -> tuple[DermoscopyAssessment | None, s
         if not candidate.startswith("{"):
             continue
         try:
-            return DermoscopyAssessment.model_validate_json(candidate), None
+            return model_cls.model_validate_json(candidate), None
         except ValidationError as exc:
             last_error = str(exc)
 
     return None, last_error
+
+
+def parse_assessment_json(raw_text: str) -> tuple[DermoscopyAssessment | None, str | None]:
+    """Parse and validate raw model output into DermoscopyAssessment."""
+    return _parse_model_json(raw_text, DermoscopyAssessment)
+
+
+def parse_triage_json(raw_text: str) -> tuple[TriageAssessment | None, str | None]:
+    """Parse and validate raw model output into TriageAssessment."""
+    return _parse_model_json(raw_text, TriageAssessment)

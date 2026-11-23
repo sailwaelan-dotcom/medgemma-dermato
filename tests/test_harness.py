@@ -3,6 +3,7 @@
 import json
 
 from medgemma_dermato.eval.harness import EvalCase, compare_reports, evaluate_predictions
+from medgemma_dermato.prompts import mask_assistant_labels
 
 
 def _make_json_output(
@@ -128,3 +129,68 @@ def test_compare_reports_flags_regression_and_threshold() -> None:
     assert "gguf_q4" in md
     assert "SOUS_SEUIL" in md
     assert "RÉGRESSION" in md
+
+
+def test_triage_mode_melanoma_entity_and_label_masking() -> None:
+    def _triage_json(entity: str, triage: str, conf: float, abstain: bool = False) -> str:
+        mel_pat = "melanocytic" if entity in ("melanoma", "nevus") else "non_melanocytic"
+        return json.dumps(
+            {
+                "image_quality_adequate": True,
+                "melanocytic_pattern": mel_pat,
+                "entity_category": entity,
+                "research_triage_label": triage,
+                "confidence": conf,
+                "abstain": abstain,
+                "abstention_reason": "Indéterminé" if abstain else None,
+                "summary_for_referral_fr": "Synthèse test.",
+            }
+        )
+
+    cases = [
+        EvalCase(
+            isic_id="M1",
+            ground_truth_malignant=True,
+            ground_truth_entity="melanoma",
+            ground_truth_is_melanoma=True,
+            raw_model_output=_triage_json("melanoma", "suspicious_malignant_pattern", 0.90),
+        ),
+        EvalCase(
+            isic_id="M2",
+            ground_truth_malignant=True,
+            ground_truth_entity="basal_cell_carcinoma",
+            ground_truth_is_melanoma=False,
+            raw_model_output=_triage_json(
+                "basal_cell_carcinoma", "suspicious_malignant_pattern", 0.85
+            ),
+        ),
+        EvalCase(
+            isic_id="B1",
+            ground_truth_malignant=False,
+            ground_truth_entity="nevus",
+            ground_truth_is_melanoma=False,
+            raw_model_output=_triage_json("nevus", "benign_pattern", 0.80),
+        ),
+    ]
+    report = evaluate_predictions(
+        cases=cases,
+        run_name="qlora_triage",
+        model_id="google/medgemma-1.5-4b-it",
+        task_mode="triage",
+    )
+    assert report.melanoma_total == 1
+    assert report.melanoma_detected == 1
+    assert report.melanoma_sensitivity_direct == 1.0
+    assert report.melanoma_sensitivity_safe_triage == 1.0
+    assert report.entity_accuracy == 1.0
+    assert report.specificity_direct == 1.0
+
+    # Verify prompt + marker + pad/vision masking for assistant-only loss.
+    tokens = [10, 262144, 20, 999, 101, 102, 103, 0, 0]
+    masked = mask_assistant_labels(
+        tokens,
+        marker_ids=[999],
+        pad_token_id=0,
+        extra_mask_ids={262144},
+    )
+    assert masked == [-100, -100, -100, -100, 101, 102, 103, -100, -100]

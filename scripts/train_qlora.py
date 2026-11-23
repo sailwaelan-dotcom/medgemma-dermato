@@ -1,4 +1,4 @@
-"""Fine-tune MedGemma 1.5 4B with QLoRA (NF4 + bfloat16) using official TRL pattern."""
+"""Fine-tune MedGemma 1.5 4B with QLoRA (NF4 + bfloat16) on ground-truth ISIC triage."""
 
 import argparse
 from pathlib import Path
@@ -13,8 +13,7 @@ from trl import SFTConfig, SFTTrainer
 
 from medgemma_dermato.config import load_config
 from medgemma_dermato.data.isic_ingest import ISICRecord, load_records_jsonl
-from medgemma_dermato.prompts import build_sft_messages
-from medgemma_dermato.schema import DermoscopyAssessment, SemiologyCriteria
+from medgemma_dermato.prompts import build_triage_sft_messages, mask_assistant_labels
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,68 +41,24 @@ def _ensure_image(record: ISICRecord, image_dir: Path, client: httpx.Client) -> 
     return target
 
 
-def _record_to_target_assessment(record: ISICRecord) -> DermoscopyAssessment:
-    """Build a baseline structured target from ISIC diagnosis metadata."""
-    if record.is_malignant is True:
-        triage = "suspicious_malignant_pattern"
-        summary = (
-            f"Aspect dermatoscopique suspect ({record.diagnosis_2 or 'lésion maligne'}). "
-            "Avis dermatologique spécialisé requis."
-        )
-        conf = 0.80
-    elif record.is_malignant is False:
-        triage = "benign_pattern"
-        summary = (
-            f"Aspect dermatoscopique compatible avec une lésion bénigne "
-            f"({record.diagnosis_2 or 'lésion bénigne'}). Surveillance clinique habituelle."
-        )
-        conf = 0.80
-    else:
-        triage = "indeterminate"
-        summary = "Données diagnostiques insuffisantes : avis spécialisé recommandé."
-        conf = 0.45
-
-    return DermoscopyAssessment(
-        image_quality_adequate=True,
-        semiology=SemiologyCriteria(
-            asymmetry="uncertain",
-            pigment_network="uncertain",
-            dots_and_globules="uncertain",
-            streaks_or_pseudopods="uncertain",
-            blue_white_veil="uncertain",
-            vascular_structures="uncertain",
-            regression_structures="uncertain",
-            color_count=1,
-            observed_colors=["brown"],
-        ),
-        confidence=conf,
-        abstain=(conf < 0.5),
-        abstention_reason=(
-            "Étiquette clinique indéterminée dans le manifeste." if conf < 0.5 else None
-        ),
-        summary_for_referral_fr=summary,
-        research_triage_label=triage,
-    )
-
-
-def _prepare_examples(records: list[ISICRecord], image_dir: Path) -> list[dict[str, Any]]:
+def _prepare_examples(
+    records: list[ISICRecord],
+    image_dir: Path,
+    split_name: str,
+) -> list[dict[str, Any]]:
     examples: list[dict[str, Any]] = []
     with httpx.Client(timeout=30.0) as client:
-        for rec in records:
+        for idx, rec in enumerate(records, start=1):
             img_path = _ensure_image(rec, image_dir, client)
-            target = _record_to_target_assessment(rec)
-            clinical_ctx = {
-                "age_approx": rec.age_approx,
-                "sex": rec.sex,
-                "anatom_site": rec.anatom_site,
-            }
             examples.append(
                 {
                     "isic_id": rec.isic_id,
                     "image_path": str(img_path),
-                    "messages": build_sft_messages(target, clinical_context=clinical_ctx),
+                    "messages": build_triage_sft_messages(rec),
                 }
             )
+            if idx % 100 == 0 or idx == len(records):
+                print(f"[{split_name}] Cached {idx}/{len(records)} images...", flush=True)
     return examples
 
 
@@ -120,8 +75,12 @@ def main() -> None:
     train_records = load_records_jsonl(args.train_manifest)
     val_records = load_records_jsonl(args.val_manifest)
 
-    train_examples = _prepare_examples(train_records, args.image_dir)
-    val_examples = _prepare_examples(val_records, args.image_dir)
+    print(
+        f"Preparing {len(train_records)} train and {len(val_records)} val examples...",
+        flush=True,
+    )
+    train_examples = _prepare_examples(train_records, args.image_dir, "train")
+    val_examples = _prepare_examples(val_records, args.image_dir, "val")
 
     model_id = cfg.model.base_model_id
     bnb_config = BitsAndBytesConfig(
@@ -150,13 +109,17 @@ def main() -> None:
         bias="none",
         target_modules=cfg.qlora.target_modules,
         task_type="CAUSAL_LM",
-        modules_to_save=cfg.qlora.modules_to_save,
+        modules_to_save=cfg.qlora.modules_to_save or None,
     )
 
     boi_token = processor.tokenizer.special_tokens_map.get("boi_token")
-    boi_token_id = (
-        processor.tokenizer.convert_tokens_to_ids(boi_token) if boi_token else None
-    )
+    extra_mask_ids: set[int] = {262144}
+    if boi_token:
+        boi_id = processor.tokenizer.convert_tokens_to_ids(boi_token)
+        if boi_id is not None:
+            extra_mask_ids.add(int(boi_id))
+
+    response_marker_ids = processor.tokenizer.encode("<unused95>", add_special_tokens=False)
 
     def collate_fn(batch_examples: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         texts: list[str] = []
@@ -172,13 +135,16 @@ def main() -> None:
             texts.append(formatted)
 
         batch = processor(text=texts, images=images, return_tensors="pt", padding=True)
-        labels = batch["input_ids"].clone()
-        if processor.tokenizer.pad_token_id is not None:
-            labels[labels == processor.tokenizer.pad_token_id] = -100
-        if boi_token_id is not None:
-            labels[labels == boi_token_id] = -100
-        labels[labels == 262144] = -100
-        batch["labels"] = labels
+        masked_rows = [
+            mask_assistant_labels(
+                row.tolist(),
+                marker_ids=response_marker_ids,
+                pad_token_id=processor.tokenizer.pad_token_id,
+                extra_mask_ids=extra_mask_ids,
+            )
+            for row in batch["input_ids"]
+        ]
+        batch["labels"] = torch.tensor(masked_rows, dtype=batch["input_ids"].dtype)
         return batch
 
     sft_config = SFTConfig(
@@ -196,8 +162,12 @@ def main() -> None:
         logging_steps=10,
         save_strategy="steps",
         save_steps=cfg.qlora.save_steps,
+        save_total_limit=3,
         eval_strategy="steps" if val_examples else "no",
         eval_steps=cfg.qlora.save_steps,
+        load_best_model_at_end=bool(val_examples),
+        metric_for_best_model="eval_loss" if val_examples else None,
+        greater_is_better=False if val_examples else None,
         bf16=True,
         dataset_kwargs={"skip_prepare_dataset": True},
         remove_unused_columns=False,
@@ -214,9 +184,12 @@ def main() -> None:
         data_collator=collate_fn,
     )
 
+    print("Starting QLoRA fine-tuning...", flush=True)
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
-    trainer.save_model(str(args.output_dir / "final_adapter"))
-    processor.save_pretrained(str(args.output_dir / "final_adapter"))
+    final_dir = args.output_dir / "final_adapter"
+    trainer.save_model(str(final_dir))
+    processor.save_pretrained(str(final_dir))
+    print(f"Saved final LoRA adapter to {final_dir}", flush=True)
 
 
 if __name__ == "__main__":

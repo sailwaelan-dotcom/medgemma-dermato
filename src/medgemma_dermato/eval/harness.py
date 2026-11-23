@@ -1,11 +1,13 @@
 """Locked evaluation harness: JSON validity, clinical sensitivity, ECE, and regressions."""
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from medgemma_dermato.schema import parse_assessment_json
+from medgemma_dermato.schema import parse_assessment_json, parse_triage_json
+
+TaskMode = Literal["semiology", "triage"]
 
 
 class EvalCase(BaseModel):
@@ -14,6 +16,8 @@ class EvalCase(BaseModel):
     isic_id: str
     ground_truth_malignant: bool | None = None
     ground_truth_diagnosis: str | None = None
+    ground_truth_entity: str | None = None
+    ground_truth_is_melanoma: bool | None = None
     ground_truth_semiology: dict[str, Any] | None = None
     raw_model_output: str
     latency_ms: float | None = None
@@ -25,6 +29,7 @@ class EvalReport(BaseModel):
     run_name: str
     model_id: str
     quantization: str = "BF16"
+    task_mode: str = "semiology"
     total_cases: int
     json_valid_count: int
     json_valid_rate: float
@@ -36,10 +41,16 @@ class EvalReport(BaseModel):
     malignant_missed_fn: int
     malignant_sensitivity_direct: float | None = None
     malignant_sensitivity_safe_triage: float | None = None
+    melanoma_total: int = 0
+    melanoma_detected: int = 0
+    melanoma_abstained: int = 0
+    melanoma_sensitivity_direct: float | None = None
+    melanoma_sensitivity_safe_triage: float | None = None
     benign_total: int
     benign_correct: int
     benign_abstained: int
     specificity_direct: float | None = None
+    entity_accuracy: float | None = None
     ece_calibration_error: float | None = None
     semiology_agreement: dict[str, float] = Field(default_factory=dict)
     mean_latency_ms: float | None = None
@@ -78,8 +89,9 @@ def evaluate_predictions(
     model_id: str,
     quantization: str = "BF16",
     abstention_threshold: float = 0.60,
+    task_mode: TaskMode = "semiology",
 ) -> EvalReport:
-    """Score raw model outputs against ground truth labels and semiology annotations."""
+    """Score raw model outputs against ground truth labels, entities, and semiology."""
     total_cases = len(cases)
     json_valid_count = 0
     abstention_count = 0
@@ -89,9 +101,16 @@ def evaluate_predictions(
     malignant_abstained = 0
     malignant_missed_fn = 0
 
+    melanoma_total = 0
+    melanoma_detected = 0
+    melanoma_abstained = 0
+
     benign_total = 0
     benign_correct = 0
     benign_abstained = 0
+
+    entity_total = 0
+    entity_correct = 0
 
     calib_confidences: list[float] = []
     calib_correctness: list[bool] = []
@@ -109,8 +128,18 @@ def evaluate_predictions(
         elif case.ground_truth_malignant is False:
             benign_total += 1
 
-        assessment, err = parse_assessment_json(case.raw_model_output)
-        if assessment is None:
+        if case.ground_truth_is_melanoma is True:
+            melanoma_total += 1
+
+        if case.ground_truth_entity is not None:
+            entity_total += 1
+
+        if task_mode == "triage":
+            parsed, err = parse_triage_json(case.raw_model_output)
+        else:
+            parsed, err = parse_assessment_json(case.raw_model_output)
+
+        if parsed is None:
             if len(parse_errors_sample) < 10:
                 parse_errors_sample.append(f"{case.isic_id}: {err}")
             if case.ground_truth_malignant is True:
@@ -119,9 +148,9 @@ def evaluate_predictions(
 
         json_valid_count += 1
         is_abstained = (
-            assessment.abstain
-            or assessment.confidence < abstention_threshold
-            or assessment.research_triage_label == "indeterminate"
+            parsed.abstain
+            or parsed.confidence < abstention_threshold
+            or parsed.research_triage_label == "indeterminate"
         )
 
         if is_abstained:
@@ -130,23 +159,31 @@ def evaluate_predictions(
                 malignant_abstained += 1
             elif case.ground_truth_malignant is False:
                 benign_abstained += 1
+            if case.ground_truth_is_melanoma is True:
+                melanoma_abstained += 1
         else:
-            pred_malignant = assessment.research_triage_label == "suspicious_malignant_pattern"
+            pred_malignant = parsed.research_triage_label == "suspicious_malignant_pattern"
             if case.ground_truth_malignant is True:
                 if pred_malignant:
                     malignant_detected += 1
+                    if case.ground_truth_is_melanoma is True:
+                        melanoma_detected += 1
                 else:
                     malignant_missed_fn += 1
-                calib_confidences.append(assessment.confidence)
+                calib_confidences.append(parsed.confidence)
                 calib_correctness.append(pred_malignant)
             elif case.ground_truth_malignant is False:
                 if not pred_malignant:
                     benign_correct += 1
-                calib_confidences.append(assessment.confidence)
+                calib_confidences.append(parsed.confidence)
                 calib_correctness.append(not pred_malignant)
 
-        if case.ground_truth_semiology:
-            sem_dict = assessment.semiology.model_dump()
+        if task_mode == "triage" and case.ground_truth_entity is not None:
+            if parsed.entity_category == case.ground_truth_entity:  # type: ignore[union-attr]
+                entity_correct += 1
+
+        if task_mode == "semiology" and case.ground_truth_semiology:
+            sem_dict = parsed.semiology.model_dump()  # type: ignore[union-attr]
             for key, gt_val in case.ground_truth_semiology.items():
                 if key in sem_dict:
                     semiology_counts[key] += 1
@@ -166,7 +203,20 @@ def evaluate_predictions(
         if malignant_total > 0
         else None
     )
+    mel_sens_direct = (
+        round(melanoma_detected / melanoma_total, 4) if melanoma_total > 0 else None
+    )
+    mel_sens_safe = (
+        round((melanoma_detected + melanoma_abstained) / melanoma_total, 4)
+        if melanoma_total > 0
+        else None
+    )
     spec_direct = round(benign_correct / benign_total, 4) if benign_total > 0 else None
+    ent_acc = (
+        round(entity_correct / entity_total, 4)
+        if task_mode == "triage" and entity_total > 0
+        else None
+    )
     ece = _compute_ece(calib_confidences, calib_correctness)
 
     semiology_agreement = {
@@ -180,6 +230,7 @@ def evaluate_predictions(
         run_name=run_name,
         model_id=model_id,
         quantization=quantization,
+        task_mode=task_mode,
         total_cases=total_cases,
         json_valid_count=json_valid_count,
         json_valid_rate=json_valid_rate,
@@ -191,10 +242,16 @@ def evaluate_predictions(
         malignant_missed_fn=malignant_missed_fn,
         malignant_sensitivity_direct=sens_direct,
         malignant_sensitivity_safe_triage=sens_safe,
+        melanoma_total=melanoma_total,
+        melanoma_detected=melanoma_detected,
+        melanoma_abstained=melanoma_abstained,
+        melanoma_sensitivity_direct=mel_sens_direct,
+        melanoma_sensitivity_safe_triage=mel_sens_safe,
         benign_total=benign_total,
         benign_correct=benign_correct,
         benign_abstained=benign_abstained,
         specificity_direct=spec_direct,
+        entity_accuracy=ent_acc,
         ece_calibration_error=ece,
         semiology_agreement=semiology_agreement,
         mean_latency_ms=mean_latency,
@@ -212,9 +269,9 @@ def compare_reports(reports: list[EvalReport], min_malignant_sensitivity: float 
         return "_Aucun rapport d'évaluation disponible._"
 
     lines = [
-        "| Run | Quant | JSON valide | Abstention | Sens. Maligne Directe | "
-        "Sens. Triage Sûr | Spécificité | ECE | Latence (ms) | Statut |",
-        "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |",
+        "| Run | Quant | JSON valide | Abstention | Sens. Maligne | Sens. Triage Sûr | "
+        "Sens. Mélanome | Spécificité | Acc. Entité | ECE | Latence (ms) | Statut |",
+        "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |",
     ]
     warnings: list[str] = []
     baseline = reports[0]
@@ -255,7 +312,9 @@ def compare_reports(reports: list[EvalReport], min_malignant_sensitivity: float 
             f"| {rep.run_name} | {rep.quantization} | {_fmt_pct(rep.json_valid_rate)} | "
             f"{_fmt_pct(rep.abstention_rate)} | {_fmt_pct(rep.malignant_sensitivity_direct)} | "
             f"{_fmt_pct(rep.malignant_sensitivity_safe_triage)} | "
-            f"{_fmt_pct(rep.specificity_direct)} | {ece_str} | {lat_str} | {status_str} |"
+            f"{_fmt_pct(rep.melanoma_sensitivity_safe_triage)} | "
+            f"{_fmt_pct(rep.specificity_direct)} | {_fmt_pct(rep.entity_accuracy)} | "
+            f"{ece_str} | {lat_str} | {status_str} |"
         )
 
     if warnings:

@@ -8,7 +8,10 @@ from pydantic import ValidationError
 from medgemma_dermato.schema import (
     DermoscopyAssessment,
     SemiologyCriteria,
+    TriageAssessment,
+    map_isic_to_entity_category,
     parse_assessment_json,
+    parse_triage_json,
     split_thinking_trace,
 )
 
@@ -125,3 +128,63 @@ def test_parse_medgemma_thinking_trace_and_truncation() -> None:
     t_parsed, t_err = parse_assessment_json(truncated)
     assert t_parsed is None
     assert t_err is not None and "truncated inside <unused94>thought" in t_err
+
+
+def test_triage_schema_and_entity_mapping() -> None:
+    assert map_isic_to_entity_category("Malignant", "Melanoma", "Melanoma in situ") == "melanoma"
+    assert (
+        map_isic_to_entity_category(
+            "Malignant",
+            "Malignant adnexal epithelial proliferations - Follicular",
+            "Basal cell carcinoma",
+        )
+        == "basal_cell_carcinoma"
+    )
+    assert (
+        map_isic_to_entity_category(
+            "Malignant",
+            "Malignant epidermal proliferations",
+            "Squamous cell carcinoma, NOS",
+        )
+        == "squamous_cell_carcinoma"
+    )
+    assert map_isic_to_entity_category("Benign", "Benign melanocytic proliferations", "Nevus") == (
+        "nevus"
+    )
+    assert (
+        map_isic_to_entity_category(
+            "Indeterminate",
+            "Indeterminate epidermal proliferations",
+            "Solar or actinic keratosis",
+        )
+        == "actinic_keratosis_or_indeterminate"
+    )
+
+    with pytest.raises(ValidationError):
+        TriageAssessment(
+            image_quality_adequate=True,
+            melanocytic_pattern="uncertain",
+            entity_category="actinic_keratosis_or_indeterminate",
+            research_triage_label="indeterminate",
+            confidence=0.70,
+            abstain=False,
+            abstention_reason=None,
+            summary_for_referral_fr="Test",
+        )
+
+    valid_triage = json.dumps(
+        {
+            "image_quality_adequate": True,
+            "melanocytic_pattern": "melanocytic",
+            "entity_category": "melanoma",
+            "research_triage_label": "suspicious_malignant_pattern",
+            "confidence": 0.85,
+            "abstain": False,
+            "abstention_reason": None,
+            "summary_for_referral_fr": "Aspect suspect de mélanome.",
+        }
+    )
+    parsed, err = parse_triage_json(valid_triage)
+    assert err is None
+    assert parsed is not None
+    assert parsed.entity_category == "melanoma"

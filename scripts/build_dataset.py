@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from medgemma_dermato.data.isic_ingest import (
     build_leakage_free_splits,
     export_records_jsonl,
     filter_records,
+    stratified_sample_records,
 )
 
 
@@ -44,8 +46,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-items",
         type=int,
-        default=500,
-        help="Maximum raw ISIC records to fetch per pool (default: 500).",
+        default=None,
+        help="Optional cap on raw ISIC records fetched per pool (default: None = full cohort).",
+    )
+    parser.add_argument(
+        "--test-stratified-size",
+        type=int,
+        default=200,
+        help=(
+            "Stratified external test size (~35%% malignant, ~57.5%% benign, ~7.5%% indet; 0=all)."
+        ),
     )
     parser.add_argument(
         "--skip-exclude-fetch",
@@ -55,11 +65,30 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _label_counts(records: list[ISICRecord]) -> dict[str, int]:
+def _label_counts(records: list[ISICRecord]) -> dict[str, Any]:
     malignant = sum(1 for r in records if r.is_malignant is True)
     benign = sum(1 for r in records if r.is_malignant is False)
     other = len(records) - malignant - benign
-    return {"total": len(records), "malignant": malignant, "benign": benign, "other": other}
+    subtypes = Counter(r.diagnosis_3 or r.diagnosis_2 or "Unknown" for r in records)
+    fitzpatrick = Counter(r.fitzpatrick_skin_type or "Unknown" for r in records)
+    return {
+        "total": len(records),
+        "malignant": malignant,
+        "benign": benign,
+        "other": other,
+        "subtypes": dict(subtypes.most_common()),
+        "fitzpatrick": dict(fitzpatrick),
+    }
+
+
+def _count_legacy_pre2019_ids(records: list[ISICRecord]) -> int:
+    count = 0
+    for rec in records:
+        if rec.isic_id.startswith("ISIC_"):
+            suffix = rec.isic_id[5:]
+            if suffix.isdigit() and int(suffix) <= 39999:
+                count += 1
+    return count
 
 
 def main() -> None:
@@ -106,6 +135,18 @@ def main() -> None:
                 commercial_only=args.commercial_only,
                 allowed_image_types=allowed_types,
             )
+            if args.test_stratified_size > 0 and len(filtered_test) > args.test_stratified_size:
+                mal_n = int(round(args.test_stratified_size * 0.35))
+                ben_n = int(round(args.test_stratified_size * 0.575))
+                ind_n = max(0, args.test_stratified_size - mal_n - ben_n)
+                filtered_test = stratified_sample_records(
+                    filtered_test,
+                    malignant_target=mal_n,
+                    benign_target=ben_n,
+                    indeterminate_target=ind_n,
+                    seed=cfg.data.seed,
+                )
+
             splits = build_cross_hospital_splits(
                 train_val_records=filtered_tv,
                 external_test_records=filtered_test,
@@ -152,6 +193,7 @@ def main() -> None:
         ),
         "excluded_holdout_id_count": len(excluded_ids),
         "excluded_from_test_count": splits.excluded_from_test_count,
+        "legacy_pre2019_id_count_in_test": _count_legacy_pre2019_ids(splits.test),
         "split_counts": {
             "train": _label_counts(splits.train),
             "val": _label_counts(splits.val),

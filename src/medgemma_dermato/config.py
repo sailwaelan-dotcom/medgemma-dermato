@@ -56,17 +56,17 @@ class QLoRAConfig(BaseModel):
     """QLoRA fine-tuning hyperparameters aligned with MedGemma official recipe."""
 
     r: int = Field(default=16, ge=4)
-    lora_alpha: int = Field(default=16, ge=4)
+    lora_alpha: int = Field(default=32, ge=4)
     lora_dropout: float = Field(default=0.05, ge=0.0, lt=1.0)
     target_modules: str | list[str] = "all-linear"
-    modules_to_save: list[str] = Field(default_factory=lambda: ["lm_head", "embed_tokens"])
-    learning_rate: float = Field(default=2.0e-4, gt=0.0)
-    num_train_epochs: int = Field(default=1, ge=1)
+    modules_to_save: list[str] = Field(default_factory=list)
+    learning_rate: float = Field(default=1.0e-4, gt=0.0)
+    num_train_epochs: int = Field(default=2, ge=1)
     per_device_train_batch_size: int = Field(default=1, ge=1)
     gradient_accumulation_steps: int = Field(default=8, ge=1)
     save_steps: int = Field(default=50, ge=1)
     max_grad_norm: float = Field(default=0.3, gt=0.0)
-    warmup_ratio: float = Field(default=0.03, ge=0.0, lt=1.0)
+    warmup_ratio: float = Field(default=0.05, ge=0.0, lt=1.0)
 
 
 class EvalConfig(BaseModel):

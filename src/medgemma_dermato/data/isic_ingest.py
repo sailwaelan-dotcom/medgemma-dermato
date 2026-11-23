@@ -436,6 +436,82 @@ def build_cross_hospital_splits(
     return result
 
 
+def _sample_grouped_bucket(
+    groups: list[list[ISICRecord]],
+    target_count: int,
+    rng: random.Random,
+) -> list[ISICRecord]:
+    """Select groups up to target_count while interleaving diagnosis_3 subtypes."""
+    if target_count <= 0 or not groups:
+        return []
+    by_subtype: dict[str, list[list[ISICRecord]]] = defaultdict(list)
+    for grp in groups:
+        subtype = (grp[0].diagnosis_3 or grp[0].diagnosis_2 or "unknown").strip()
+        by_subtype[subtype].append(grp)
+
+    subtype_keys = sorted(by_subtype.keys())
+    for key in subtype_keys:
+        rng.shuffle(by_subtype[key])
+
+    selected: list[ISICRecord] = []
+    # Round-robin across subtypes so rare malignant entities (BCC, SCC) are preserved.
+    idx = 0
+    while len(selected) < target_count:
+        progressed = False
+        for key in subtype_keys:
+            bucket = by_subtype[key]
+            if idx < len(bucket):
+                grp = bucket[idx]
+                if len(selected) + len(grp) <= target_count or not selected:
+                    selected.extend(grp)
+                    progressed = True
+                    if len(selected) >= target_count:
+                        break
+        if not progressed:
+            break
+        idx += 1
+    if len(selected) > target_count and len(selected) == 1:
+        return selected[:target_count]
+    return selected
+
+
+def stratified_sample_records(
+    records: list[ISICRecord],
+    malignant_target: int = 70,
+    benign_target: int = 115,
+    indeterminate_target: int = 15,
+    seed: int = 42,
+) -> list[ISICRecord]:
+    """Deterministically sample grouped records across Malignant/Benign/Indeterminate."""
+    deduped_map: dict[str, ISICRecord] = {}
+    for rec in records:
+        deduped_map.setdefault(rec.isic_id, rec)
+
+    grouped: dict[str, list[ISICRecord]] = defaultdict(list)
+    for rec in deduped_map.values():
+        grouped[rec.group_key].append(rec)
+
+    mal_groups: list[list[ISICRecord]] = []
+    ben_groups: list[list[ISICRecord]] = []
+    ind_groups: list[list[ISICRecord]] = []
+    for grp in grouped.values():
+        if any(r.is_malignant is True for r in grp):
+            mal_groups.append(grp)
+        elif all(r.is_malignant is False for r in grp):
+            ben_groups.append(grp)
+        else:
+            ind_groups.append(grp)
+
+    rng = random.Random(seed)
+    chosen = (
+        _sample_grouped_bucket(mal_groups, malignant_target, rng)
+        + _sample_grouped_bucket(ben_groups, benign_target, rng)
+        + _sample_grouped_bucket(ind_groups, indeterminate_target, rng)
+    )
+    rng.shuffle(chosen)
+    return chosen
+
+
 def export_records_jsonl(records: list[ISICRecord], path: Path | str) -> None:
     """Write ISICRecord list to a JSONL manifest."""
     out_path = Path(path)

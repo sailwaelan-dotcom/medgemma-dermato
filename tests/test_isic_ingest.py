@@ -7,6 +7,7 @@ from medgemma_dermato.data.isic_ingest import (
     filter_records,
     is_commercial_license,
     parse_isic_api_item,
+    stratified_sample_records,
 )
 
 
@@ -178,3 +179,63 @@ def test_cross_hospital_splits_isolate_test_and_strip_overlaps() -> None:
     tv_ids = {r.isic_id for r in split.train} | {r.isic_id for r in split.val}
     assert "HIBA_LEAK" not in tv_ids
     assert len(tv_ids) == 10
+
+
+def test_stratified_sample_preserves_subtypes_and_groups() -> None:
+    pool: list[ISICRecord] = []
+    # 30 malignant split across melanoma, BCC, SCC (2 images per patient).
+    subtypes = ["Melanoma in situ", "Basal cell carcinoma", "Squamous cell carcinoma, NOS"]
+    for idx in range(15):
+        sub = subtypes[idx % 3]
+        for j in range(2):
+            pool.append(
+                ISICRecord(
+                    isic_id=f"MAL_{idx}_{j}",
+                    copyright_license="CC-BY",
+                    image_url=f"https://example.com/mal_{idx}_{j}.jpg",
+                    image_type="dermoscopic",
+                    diagnosis_1="Malignant",
+                    diagnosis_3=sub,
+                    patient_id=f"PM_{idx}",
+                )
+            )
+    # 30 benign, 10 indeterminate
+    for idx in range(30):
+        pool.append(
+            ISICRecord(
+                isic_id=f"BEN_{idx}",
+                copyright_license="CC-BY",
+                image_url=f"https://example.com/ben_{idx}.jpg",
+                image_type="dermoscopic",
+                diagnosis_1="Benign",
+                diagnosis_3="Nevus",
+                patient_id=f"PB_{idx}",
+            )
+        )
+    for idx in range(10):
+        pool.append(
+            ISICRecord(
+                isic_id=f"IND_{idx}",
+                copyright_license="CC-BY",
+                image_url=f"https://example.com/ind_{idx}.jpg",
+                image_type="dermoscopic",
+                diagnosis_1="Indeterminate",
+                diagnosis_3="Solar or actinic keratosis",
+                patient_id=f"PI_{idx}",
+            )
+        )
+
+    sampled = stratified_sample_records(
+        pool,
+        malignant_target=12,
+        benign_target=14,
+        indeterminate_target=4,
+        seed=42,
+    )
+    mal_sampled = [r for r in sampled if r.is_malignant is True]
+    ben_sampled = [r for r in sampled if r.is_malignant is False]
+    ind_sampled = [r for r in sampled if r.is_malignant is None]
+    assert len(mal_sampled) == 12
+    assert len(ben_sampled) == 14
+    assert len(ind_sampled) == 4
+    assert {r.diagnosis_3 for r in mal_sampled} == set(subtypes)
