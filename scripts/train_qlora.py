@@ -111,10 +111,10 @@ def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
 
-    if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability(0)[0] < 8:
         raise RuntimeError(
-            "QLoRA training for MedGemma 1.5 4B requires a CUDA GPU with native bfloat16 "
-            "(A100 or L4). T4/CPU are unsupported."
+            "QLoRA training for MedGemma 1.5 4B requires a CUDA GPU with native hardware "
+            "bfloat16 (SM >= 8.0, i.e. A100 or L4). T4/CPU are unsupported."
         )
 
     train_records = load_records_jsonl(args.train_manifest)

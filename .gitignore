@@ -11,9 +11,9 @@ dist/
 build/
 
 # Datasets, model weights & run artifacts
-data/
-outputs/
-checkpoints/
+/data/
+/outputs/
+/checkpoints/
 *.gguf
 *.safetensors
 *.bin

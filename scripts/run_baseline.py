@@ -53,10 +53,11 @@ def main() -> None:
     if not torch.cuda.is_available():
         warnings.warn("CUDA unavailable: running on CPU will be extremely slow.", stacklevel=1)
         dtype = torch.float32
-    elif not torch.cuda.is_bf16_supported():
+    elif torch.cuda.get_device_capability(0)[0] < 8:
+        major, minor = torch.cuda.get_device_capability(0)
         warnings.warn(
-            "GPU does not natively support bfloat16 (e.g. T4). "
-            "Prefer L4 or A100 for MedGemma stability.",
+            f"GPU compute capability {major}.{minor} (< 8.0, e.g. T4) lacks native hardware "
+            "bfloat16. Falling back to float16; prefer L4 or A100 for MedGemma stability.",
             stacklevel=1,
         )
         dtype = torch.float16
