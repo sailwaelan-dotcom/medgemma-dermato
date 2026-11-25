@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MedGemma Dermato — Edge Clinical Safety Harness (RUO)</title>
+  <style>
+    :root {
+      --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0; --text: #0f172a; --muted: #475569;
+      --green: #16a34a; --green-bg: #dcfce7;
+      --amber: #d97706; --amber-bg: #fef3c7;
+      --red: #dc2626; --red-bg: #fee2e2;
+      --blue: #2563eb;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    header { background: #0f172a; color: #f8fafc; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    header h1 { margin: 0; font-size: 18px; }
+    .banner { background: #fef3c7; color: #92400e; padding: 10px 24px; font-size: 13px; border-bottom: 1px solid #fde68a; font-weight: 500; }
+    .status-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
+    .pill.ok { background: #14532d; color: #bbf7d0; border-color: #166534; }
+    .pill.warn { background: #78350f; color: #fde68a; border-color: #92400e; }
+    main { max-width: 1120px; margin: 24px auto; padding: 0 20px 40px; display: grid; grid-template-columns: 1fr 1.25fr; gap: 20px; }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .card h2 { margin: 0 0 14px; font-size: 15px; color: var(--text); }
+    .dropzone { border: 2px dashed #94a3b8; border-radius: 10px; padding: 24px; text-align: center; cursor: pointer; background: #f8fafc; transition: border-color .15s; }
+    .dropzone:hover { border-color: var(--blue); }
+    #preview { max-width: 100%; max-height: 220px; border-radius: 8px; margin-top: 12px; display: none; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    label.field { display: flex; flex-direction: column; font-size: 12.5px; color: var(--muted); gap: 4px; }
+    input[type="number"], select, input[type="text"] { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13.5px; }
+    .checks { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+    .checks label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    button.primary { margin-top: 16px; width: 100%; padding: 12px; border: none; border-radius: 9px; background: var(--blue); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
+    button.primary:disabled { opacity: .6; cursor: not-allowed; }
+    button.secondary { padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer; font-size: 12.5px; font-weight: 500; }
+    .zone-box { border-radius: 10px; padding: 16px; margin-bottom: 16px; border: 1px solid transparent; }
+    .zone-GREEN_LOW_RISK_SURVEILLANCE { background: var(--green-bg); border-color: #86efac; color: #14532d; }
+    .zone-AMBER_UNCERTAIN_TELEEXPERTISE { background: var(--amber-bg); border-color: #fcd34d; color: #78350f; }
+    .zone-RED_PRIORITY_DERMATOLOGY { background: var(--red-bg); border-color: #fca5a5; color: #7f1d1d; }
+    .metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
+    .metric { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+    .metric .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+    .metric .v { font-size: 18px; font-weight: 700; margin-top: 2px; }
+    .rules { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+    .rule-tag { font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: #e2e8f0; color: #1e293b; font-family: ui-monospace, monospace; }
+    .summary-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; }
+    .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .muted { color: var(--muted); font-size: 12.5px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MedGemma Dermato — Edge Clinical Safety Harness</h1>
+    <div class="status-pills">
+      <span id="pill-s1" class="pill">System 1 ONNX: ...</span>
+      <span id="pill-s2" class="pill">System 2 llama.cpp: ...</span>
+      <span class="pill ok">100% Offline Edge</span>
+    </div>
+  </header>
+  <div class="banner">
+    HORS-MDR / RESEARCH USE ONLY (RUO) — Outil de pré-triage et qualité pré-analytique. Ne constitue jamais un diagnostic médical autonome.
+  </div>
+
+  <main>
+    <section class="card">
+      <h2>1. Cliché dermatoscopique &amp; contexte clinique</h2>
+      <div class="dropzone" id="dropzone">
+        <input id="fileInput" type="file" accept="image/*" style="display:none" />
+        <div>Cliquer ou glisser une image dermatoscopique (.jpg / .png)</div>
+        <img id="preview" alt="Aperçu lésion" />
+      </div>
+
+      <div class="grid-2">
+        <label class="field">Âge (ans)<input id="age" type="number" min="0" max="120" placeholder="ex. 65" /></label>
+        <label class="field">Sexe
+          <select id="sex">
+            <option value="">Non renseigné</option>
+            <option value="female">Femme</option>
+            <option value="male">Homme</option>
+          </select>
+        </label>
+      </div>
+      <div style="margin-top:10px">
+        <label class="field">Localisation anatomique<input id="site" type="text" placeholder="ex. Dos, membre supérieur, visage..." /></label>
+      </div>
+
+      <div class="checks">
+        <strong style="font-size:12.5px; color:#334155;">Drapeaux rouges cliniques (Verrou 4 — bloquent la Zone Verte) :</strong>
+        <label><input id="evolving" type="checkbox" /> Lésion évolutive récente (critère E d'ABCDE)</label>
+        <label><input id="bleeding" type="checkbox" /> Saignement ou ulcération</label>
+        <label><input id="new50" type="checkbox" /> Nouvelle lésion atypique après 50 ans</label>
+        <label><input id="history" type="checkbox" /> Antécédent personnel/familial de mélanome</label>
+        <label><input id="tta4" type="checkbox" checked /> Activer TTA-4 rotations + contrôle d'instabilité</label>
+      </div>
+
+      <button id="runBtn" class="primary" disabled>Analyser localement (Offline)</button>
+    </section>
+
+    <section class="card">
+      <h2>2. Sortie 3-Zones &amp; Fiche d'adressage sécurisée</h2>
+      <div id="placeholder" class="muted">Chargez une image dermatoscopique puis lancez l'analyse. Les 6 verrous du harness s'exécutent localement sans envoi cloud.</div>
+      <div id="resultPane" style="display:none">
+        <div id="zoneBox" class="zone-box"></div>
+        <div class="metrics-row">
+          <div class="metric"><div class="k">Risque Fusionné</div><div id="mFused" class="v">—</div></div>
+          <div class="metric"><div class="k">System 1 (ONNX)</div><div id="mS1" class="v">—</div></div>
+          <div class="metric"><div class="k">MedGemma (S2)</div><div id="mS2" class="v">—</div></div>
+        </div>
+        <div class="muted" id="metaLine"></div>
+        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Règles de sécurité déclenchées :</div>
+        <div id="rulesBox" class="rules"></div>
+        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Synthèse d'adressage (sécurisée Hors-MDR) :</div>
+        <div id="summaryBox" class="summary-box"></div>
+        <div class="actions">
+          <button id="copyBtn" class="secondary">Copier la fiche médecin</button>
+          <button id="auditBtn" class="secondary">Télécharger Audit Trail JSON</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let selectedFile = null;
+    let lastPayload = null;
+
+    async function refreshHealth() {
+      try {
+        const r = await fetch("/api/health");
+        const h = await r.json();
+        const p1 = document.getElementById("pill-s1");
+        p1.textContent = h.system1_onnx_ready ? "System 1 ONNX: Prêt" : "System 1 ONNX: Absent";
+        p1.className = "pill " + (h.system1_onnx_ready ? "ok" : "warn");
+        const p2 = document.getElementById("pill-s2");
+        p2.textContent = h.system2_llama_server_ready ? "System 2 llama.cpp: Connecté" : "System 2: Mode dégradé (S1 seul)";
+        p2.className = "pill " + (h.system2_llama_server_ready ? "ok" : "warn");
+      } catch (e) {}
+    }
+    refreshHealth();
+
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
+    const preview = document.getElementById("preview");
+    const runBtn = document.getElementById("runBtn");
+
+    function handleFile(f) {
+      if (!f) return;
+      selectedFile = f;
+      preview.src = URL.createObjectURL(f);
+      preview.style.display = "inline-block";
+      runBtn.disabled = false;
+    }
+    dropzone.onclick = () => fileInput.click();
+    fileInput.onchange = (e) => handleFile(e.target.files[0]);
+    dropzone.ondragover = (e) => { e.preventDefault(); };
+    dropzone.ondrop = (e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
+
+    const ZONE_LABELS = {
+      GREEN_LOW_RISK_SURVEILLANCE: "ZONE VERTE — Faible risque calibré (Surveillance habituelle)",
+      AMBER_UNCERTAIN_TELEEXPERTISE: "ZONE GRISE — Incertitude / Garde-fou activé (Télé-expertise recommandée)",
+      RED_PRIORITY_DERMATOLOGY: "ZONE ROUGE — Risque élevé (Adressage dermatologique prioritaire)"
+    };
+
+    runBtn.onclick = async () => {
+      if (!selectedFile) return;
+      runBtn.disabled = true;
+      runBtn.textContent = "Analyse locale en cours...";
+      try {
+        const fd = new FormData();
+        fd.append("image", selectedFile);
+        const age = document.getElementById("age").value;
+        if (age) fd.append("age_years", age);
+        const sex = document.getElementById("sex").value;
+        if (sex) fd.append("sex", sex);
+        const site = document.getElementById("site").value;
+        if (site) fd.append("anatom_site", site);
+        fd.append("lesion_evolving", document.getElementById("evolving").checked);
+        fd.append("lesion_bleeding_or_ulcerated", document.getElementById("bleeding").checked);
+        fd.append("new_lesion_after_50", document.getElementById("new50").checked);
+        fd.append("personal_or_family_melanoma_history", document.getElementById("history").checked);
+        fd.append("use_tta4", document.getElementById("tta4").checked);
+
+        const resp = await fetch("/api/analyze", { method: "POST", body: fd });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        lastPayload = data;
+        const a = data.assessment;
+
+        document.getElementById("placeholder").style.display = "none";
+        document.getElementById("resultPane").style.display = "block";
+        const zb = document.getElementById("zoneBox");
+        zb.className = "zone-box zone-" + a.triage_zone;
+        zb.innerHTML = `<strong>${ZONE_LABELS[a.triage_zone] || a.triage_zone}</strong>`
+          + (a.retake_recommended ? `<div style="margin-top:6px;font-size:12.5px">Reprise photo conseillée : ${data.preflight.recommendation_fr}</div>` : "");
+
+        document.getElementById("mFused").textContent = (a.calibrated_risk_score * 100).toFixed(1) + "%";
+        document.getElementById("mS1").textContent = (a.p_sys1_cal * 100).toFixed(1) + "%";
+        document.getElementById("mS2").textContent = (a.p_medgemma_cal * 100).toFixed(1) + "%";
+        document.getElementById("metaLine").textContent =
+          `Dossier ${data.case_id} · Entité S1: ${a.sys1_top_entity} · Écart S1/S2: ${(a.disagreement*100).toFixed(1)}% · `
+          + `Instabilité TTA: ${(a.tta_risk_std ?? 0).toFixed(3)} · Latence totale: ${data.total_latency_ms} ms`;
+
+        const rb = document.getElementById("rulesBox");
+        rb.innerHTML = a.triggered_rules.length
+          ? a.triggered_rules.map(r => `<span class="rule-tag" title="${r.detail_fr}">${r.code}</span>`).join("")
+          : `<span class="rule-tag">AUCUNE_ALERTE_HARNESS</span>`;
+
+        document.getElementById("summaryBox").textContent = a.safe_referral_summary_fr + "\n\n" + a.ruo_disclaimer_fr;
+      } catch (err) {
+        alert("Erreur analyse : " + err.message);
+      } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = "Analyser localement (Offline)";
+      }
+    };
+
+    document.getElementById("copyBtn").onclick = () => {
+      if (!lastPayload) return;
+      navigator.clipboard.writeText(document.getElementById("summaryBox").textContent);
+    };
+    document.getElementById("auditBtn").onclick = () => {
+      if (!lastPayload) return;
+      const blob = new Blob([JSON.stringify(lastPayload.assessment.audit, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${lastPayload.case_id}_audit.json`;
+      a.click();
+    };
+  </script>
+</body>
+</html>

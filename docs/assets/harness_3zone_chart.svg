@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" style="background:#ffffff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+<text x="410.0" y="28" text-anchor="middle" font-size="15" font-weight="600" fill="#111827">Last-Mile 3-Zone Safety Harness — MSKCC External Hold-Out (n=200)</text>
+<rect x="125" y="44" width="14" height="14" rx="2" fill="#16a34a"/>
+<text x="145" y="55" font-size="11.5" fill="#1f2937">Zone Verte (Surveillance)</text>
+<rect x="330" y="44" width="14" height="14" rx="2" fill="#f59e0b"/>
+<text x="350" y="55" font-size="11.5" fill="#1f2937">Zone Grise (Tele-expertise)</text>
+<rect x="535" y="44" width="14" height="14" rx="2" fill="#dc2626"/>
+<text x="555" y="55" font-size="11.5" fill="#1f2937">Zone Rouge (Prioritaire)</text>
+<text x="193" y="111" text-anchor="end" font-size="12" font-weight="500" fill="#111827">Malignant (n=70)</text>
+<rect x="205.0" y="88" width="16.0" height="36" fill="#16a34a"/>
+<rect x="221.0" y="88" width="120.0" height="36" fill="#f59e0b"/>
+<text x="281.0" y="110" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">15 (21%)</text>
+<rect x="341.0" y="88" width="424.0" height="36" fill="#dc2626"/>
+<text x="553.0" y="110" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">53 (76%)</text>
+<text x="193" y="169" text-anchor="end" font-size="12" font-weight="500" fill="#111827">Melanoma (n=39)</text>
+<rect x="205.0" y="146" width="129.2" height="36" fill="#f59e0b"/>
+<text x="269.6" y="168" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">9 (23%)</text>
+<rect x="334.2" y="146" width="430.8" height="36" fill="#dc2626"/>
+<text x="549.6" y="168" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">30 (77%)</text>
+<text x="193" y="227" text-anchor="end" font-size="12" font-weight="500" fill="#111827">Benign Biopsies (n=115)</text>
+<rect x="205.0" y="204" width="102.3" height="36" fill="#16a34a"/>
+<text x="256.1" y="226" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">21 (18%)</text>
+<rect x="307.3" y="204" width="204.5" height="36" fill="#f59e0b"/>
+<text x="409.5" y="226" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">42 (37%)</text>
+<rect x="511.8" y="204" width="253.2" height="36" fill="#dc2626"/>
+<text x="638.4" y="226" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">52 (45%)</text>
+<text x="193" y="285" text-anchor="end" font-size="12" font-weight="500" fill="#111827">Indeterminate (n=15)</text>
+<rect x="205.0" y="262" width="37.3" height="36" fill="#16a34a"/>
+<rect x="242.3" y="262" width="224.0" height="36" fill="#f59e0b"/>
+<text x="354.3" y="284" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">6 (40%)</text>
+<rect x="466.3" y="262" width="298.7" height="36" fill="#dc2626"/>
+<text x="615.7" y="284" text-anchor="middle" font-size="11" font-weight="600" fill="#ffffff">8 (53%)</text>
+<text x="410.0" y="326" text-anchor="middle" font-size="11" fill="#4b5563">Malignant Safe Triage (Amber+Red): 97.1% | Melanoma Safe Triage: 100.0% | Green Zone NPV: 91.3% | Text Contradictions Blocked: 60</text>
+</svg>
