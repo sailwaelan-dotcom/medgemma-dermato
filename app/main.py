@@ -137,6 +137,7 @@ def create_app(
 
         sys2_status = "offline_degraded_s1_only"
         sys2_latency_ms: float | None = None
+        sys2_logprobs_used = False
         p_med_raw = s1_pred.p_risk_raw
         p_mel_med = s1_pred.p_melanoma
         med_top_entity: str | None = None
@@ -147,6 +148,7 @@ def create_app(
             vlm_res = vlm_client.analyze_image(pil_img, clinical_context=vlm_ctx)
             sys2_status = "connected_llama_cpp"
             sys2_latency_ms = vlm_res.latency_ms
+            sys2_logprobs_used = vlm_res.logprobs_used
             p_med_raw = vlm_res.p_risk_estimate
             p_mel_med = vlm_res.p_melanoma_estimate
             med_parsed = vlm_res.parsed
@@ -181,6 +183,7 @@ def create_app(
         return {
             "case_id": case_id,
             "system2_status": sys2_status,
+            "system2_logprobs_used": sys2_logprobs_used,
             "system2_latency_ms": sys2_latency_ms,
             "total_latency_ms": total_ms,
             "preflight": preflight.model_dump(),

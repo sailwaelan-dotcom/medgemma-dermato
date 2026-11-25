@@ -1,10 +1,13 @@
-"""Unit tests for the zero-PyTorch Edge llama.cpp VLM client."""
+"""Unit tests for the zero-PyTorch Edge llama.cpp VLM client and native log-probs parser."""
+
+import math
 
 from PIL import Image
 
 from medgemma_dermato.edge_vlm import (
     build_openai_multimodal_messages,
     estimate_risk_from_triage,
+    extract_entity_probs_from_logprobs,
 )
 from medgemma_dermato.schema import TriageAssessment
 
@@ -19,6 +22,28 @@ def test_build_openai_multimodal_messages_encodes_jpeg_data_uri() -> None:
     assert img_part["type"] == "image_url"
     assert img_part["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert "65 ans" in msgs[1]["content"][1]["text"]
+
+
+def test_extract_entity_probs_from_logprobs_continuous() -> None:
+    fake_stream = [
+        {"token": '{"entity_category":"', "top_logprobs": []},
+        {
+            "token": "nev",
+            "top_logprobs": [
+                {"token": "nev", "logprob": math.log(0.84)},
+                {"token": "mel", "logprob": math.log(0.13)},
+                {"token": "ben", "logprob": math.log(0.02)},
+                {"token": "actin", "logprob": math.log(0.01)},
+            ],
+        },
+        {"token": "us", "top_logprobs": []},
+    ]
+    extracted = extract_entity_probs_from_logprobs(fake_stream)
+    assert extracted is not None
+    p_risk, p_mel, ent_probs = extracted
+    assert abs(p_mel - 0.13) < 0.005
+    assert abs(p_risk - 0.14) < 0.005
+    assert ent_probs["nevus"] > 0.80
 
 
 def test_estimate_risk_from_triage_proxy() -> None:
