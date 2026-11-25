@@ -64,6 +64,8 @@ class System1Prediction(BaseModel):
     entity_probs: dict[str, float]
     predicted_entity: str
     tta_views: int = Field(ge=1)
+    tta_risk_std: float = Field(default=0.0, ge=0.0, le=1.0)
+    tta_risk_range: float = Field(default=0.0, ge=0.0, le=1.0)
     latency_ms: float = Field(ge=0.0)
 
 
@@ -140,8 +142,22 @@ def logits_to_system1_probs(
             f"Expected {len(entity_labels)} entity logits, got {ent_arr.shape[1]}"
         )
 
-    p_mal_head = float(np.mean(_sigmoid_np(mal_arr)))
-    ent_probs_mean = np.mean(_softmax_np(ent_arr), axis=0)
+    mal_per_view = _sigmoid_np(mal_arr)
+    ent_per_view = _softmax_np(ent_arr)
+
+    mal_indices = [i for i, lbl in enumerate(entity_labels) if lbl in MALIGNANT_ENTITIES]
+    ind_indices = [i for i, lbl in enumerate(entity_labels) if lbl in INDETERMINATE_ENTITIES]
+    ent_risk_per_view = np.clip(
+        np.sum(ent_per_view[:, mal_indices + ind_indices], axis=1), 0.0, 1.0
+    )
+    risk_per_view = np.clip(0.5 * mal_per_view + 0.5 * ent_risk_per_view, 0.0, 1.0)
+    tta_risk_std = float(np.std(risk_per_view)) if len(risk_per_view) > 1 else 0.0
+    tta_risk_range = (
+        float(np.max(risk_per_view) - np.min(risk_per_view)) if len(risk_per_view) > 1 else 0.0
+    )
+
+    p_mal_head = float(np.mean(mal_per_view))
+    ent_probs_mean = np.mean(ent_per_view, axis=0)
     entity_probs = {
         label: round(float(prob), 6)
         for label, prob in zip(entity_labels, ent_probs_mean, strict=True)
@@ -161,6 +177,8 @@ def logits_to_system1_probs(
         "p_indeterminate": round(float(np.clip(p_entity_indet, 0.0, 1.0)), 6),
         "p_risk": round(p_risk, 6),
         "p_melanoma": round(p_melanoma, 6),
+        "tta_risk_std": round(tta_risk_std, 6),
+        "tta_risk_range": round(tta_risk_range, 6),
         "entity_probs": entity_probs,
         "predicted_entity": predicted_entity,
     }
@@ -236,5 +254,7 @@ class OnnxSystem1Classifier:
             entity_probs=probs["entity_probs"],
             predicted_entity=probs["predicted_entity"],
             tta_views=len(views),
+            tta_risk_std=probs["tta_risk_std"],
+            tta_risk_range=probs["tta_risk_range"],
             latency_ms=latency_ms,
         )
