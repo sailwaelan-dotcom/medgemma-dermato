@@ -248,8 +248,8 @@ def _build_action_plan(
     )
 
 
-class DermoscopyTriageAgent:
-    """Deterministic tool-orchestrating agent optimizing yield, latency, and safety."""
+class ClinicalTriageOrchestrator:
+    """Deterministic tool-orchestrating pipeline optimizing yield, latency, and safety."""
 
     def __init__(
         self,
@@ -275,6 +275,7 @@ class DermoscopyTriageAgent:
         image_sha256: str | None = None,
         case_id: str | None = None,
         prior_context: LongitudinalPriorDTO | None = None,
+        adaptive_routing: bool | None = None,
     ) -> AgentRunResult:
         """Execute the full adaptive 6-tool agent pipeline on one dermoscopic image."""
         t_all = time.perf_counter()
@@ -388,9 +389,14 @@ class DermoscopyTriageAgent:
             )
 
         # Tool 4 (Adaptive Compute Router): Fast-Path System 1 vs Full System 2 MedGemma VLM
+        use_adaptive = (
+            self.agent_cfg.adaptive_routing_enabled
+            if adaptive_routing is None
+            else adaptive_routing
+        )
         s1_cal_harness = apply_temperature([s1_pred.p_risk_raw], self.harness.policy.temp_sys1)[0]
         can_fast_path = (
-            self.agent_cfg.adaptive_routing_enabled
+            use_adaptive
             and preflight.passed
             and (not _has_clinical_red_flag(clinical_context))
             and s1_cal_harness < self.agent_cfg.fast_path_sys1_max_risk
@@ -657,3 +663,6 @@ def simulate_adaptive_routing_on_cohort(
         "green_zone_benign_specificity": round(g_ben / max(ben_tot, 1), 4),
         "green_zone_malignant_fn": g_mal,
     }
+
+
+DermoscopyTriageAgent = ClinicalTriageOrchestrator

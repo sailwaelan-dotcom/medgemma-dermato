@@ -103,3 +103,29 @@ def test_edge_app_graceful_degraded_mode_when_vlm_offline(tmp_path: Path) -> Non
     body = r.json()
     assert body["routing_decision"] == "DEGRADED_SYS1_ONLY"
     assert body["system2_status"] == "offline_degraded_s1_only"
+
+
+def test_edge_app_demo_sandbox_no_503_and_no_adaptive_race(tmp_path: Path) -> None:
+    from medgemma_dermato.agent import AgentConfig
+
+    shared_cfg = AgentConfig(adaptive_routing_enabled=False)
+    app = create_app(
+        onnx_model_path=tmp_path / "missing_model.onnx",
+        vlm_override=type("Offline", (), {"healthcheck": lambda self: False})(),
+        agent_cfg=shared_cfg,
+        db_path=tmp_path / "demo_sandbox.db",
+    )
+    client = TestClient(app)
+    h = client.get("/api/health")
+    assert h.status_code == 200
+    assert h.json()["demo_mode"] is True
+
+    r = client.post(
+        "/api/analyze",
+        files={"image": ("lesion.jpg", _jpeg_bytes(), "image/jpeg")},
+        data={"adaptive_routing": "true"},
+    )
+    assert r.status_code == 200
+    assert r.json()["demo_mode"] is True
+    # Regression guard: shared config MUST NOT be mutated by per-request flag
+    assert shared_cfg.adaptive_routing_enabled is False

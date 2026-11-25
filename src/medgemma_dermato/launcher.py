@@ -131,6 +131,23 @@ def serve_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def download_system1_command(args: argparse.Namespace) -> int:
+    """Download public CC-0/CC-BY System 1 ONNX weights from Hugging Face Hub."""
+    from huggingface_hub import hf_hub_download
+
+    target_dir = Path(args.output_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for fname in ("system1_convnext_tiny_fp32.onnx", "system1_calibration.json"):
+        print(f"[download-system1] Downloading {fname} from {args.repo_id}...", flush=True)
+        hf_hub_download(
+            repo_id=args.repo_id,
+            filename=fname,
+            local_dir=str(target_dir),
+        )
+    print(f"[download-system1] Ready in {target_dir}", flush=True)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="medgemma-dermato", description="MedGemma Edge CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -144,6 +161,13 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--no-vlm", action="store_true")
     srv.add_argument("--cpu-only", action="store_true")
     srv.add_argument("--open", action="store_true")
+
+    dl = sub.add_parser(
+        "download-system1",
+        help="Download public CC-0/CC-BY System 1 ConvNeXt-Tiny ONNX weights (106 MB).",
+    )
+    dl.add_argument("--repo-id", default="SChaf09/medgemma-dermato-system1-onnx")
+    dl.add_argument("--output-dir", type=Path, default=Path("checkpoints/system1_v1"))
     return parser
 
 
@@ -152,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "serve":
         return serve_command(args)
+    if args.command == "download-system1":
+        return download_system1_command(args)
     return 1
 
 

@@ -277,8 +277,14 @@
         const r = await fetch("/api/health");
         const h = await r.json();
         const p1 = document.getElementById("pill-s1");
-        p1.textContent = h.system1_onnx_ready ? "System 1 ONNX: Prêt" : "System 1 ONNX: Absent";
+        p1.textContent = h.system1_onnx_ready
+          ? "System 1 ONNX: Prêt"
+          : (h.demo_mode ? "System 1: Mode Démo Sandbox" : "System 1 ONNX: Absent");
         p1.className = "pill " + (h.system1_onnx_ready ? "ok" : "warn");
+        if (h.demo_mode) {
+          document.querySelector(".banner").textContent =
+            "MODE DÉMO SANDBOX (poids ONNX absents) — Scores synthétiques pour exploration UI uniquement. Exécutez `medgemma-dermato download-system1` pour l'inférence réelle.";
+        }
         const p2 = document.getElementById("pill-s2");
         p2.textContent = h.system2_llama_server_ready ? "System 2 llama.cpp: Connecté" : "System 2: Mode dégradé (S1 seul)";
         p2.className = "pill " + (h.system2_llama_server_ready ? "ok" : "warn");

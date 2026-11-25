@@ -10,7 +10,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from PIL import Image, UnidentifiedImageError
 
-from medgemma_dermato.agent import AgentConfig, DermoscopyTriageAgent
+from medgemma_dermato.agent import AgentConfig, ClinicalTriageOrchestrator
 from medgemma_dermato.clinical_harness import (
     RUO_DISCLAIMER_FR,
     ClinicalContext,
@@ -26,9 +26,41 @@ from medgemma_dermato.edge_vlm import EdgeVLMClient
 from medgemma_dermato.explainability import compute_occlusion_heatmap, encode_pil_png_b64
 from medgemma_dermato.pdf_report import render_referral_pdf
 from medgemma_dermato.storage import LocalCaseStore
-from medgemma_dermato.system1 import OnnxSystem1Classifier
+from medgemma_dermato.system1 import ENTITY_LABELS, OnnxSystem1Classifier, System1Prediction
 
 STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
+
+
+class DemoSandboxSystem1:
+    """Deterministic lightweight fallback used ONLY when ONNX weights are absent on disk."""
+
+    def predict_image(self, image: Image.Image, tta: bool = True) -> System1Prediction:
+        import numpy as np
+
+        arr = np.asarray(image.convert("RGB").resize((64, 64)), dtype=np.float32)
+        mean_r = float(np.mean(arr[:, :, 0]))
+        luma = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+        mean_luma = float(np.mean(luma))
+        # Heuristic synthetic placeholder risk strictly for UI exploration
+        raw_risk = round(min(max((mean_r - mean_luma + 40.0) / 140.0, 0.08), 0.72), 4)
+        p_mel = round(raw_risk * 0.45, 4)
+        probs = {e: 0.02 for e in ENTITY_LABELS}
+        probs["melanoma"] = p_mel
+        probs["nevus"] = max(0.10, round(1.0 - raw_risk, 4))
+        return System1Prediction(
+            p_malignant_raw=raw_risk,
+            p_malignant_calibrated=raw_risk,
+            p_risk_raw=raw_risk,
+            p_risk_calibrated=raw_risk,
+            p_indeterminate=0.02,
+            p_melanoma=p_mel,
+            entity_probs=probs,
+            predicted_entity="melanoma" if raw_risk >= 0.45 else "nevus",
+            tta_views=4 if tta else 1,
+            tta_risk_std=0.02,
+            tta_risk_range=0.04,
+            latency_ms=12.0,
+        )
 
 
 def create_app(
@@ -64,15 +96,20 @@ def create_app(
     )
     store = LocalCaseStore(db_path=resolved_db)
 
+    demo_mode = False
     sys1_clf = system1_override
-    if sys1_clf is None and model_path.exists():
-        sys1_clf = OnnxSystem1Classifier(model_path=model_path, calibration_path=cal_path)
+    if sys1_clf is None:
+        if model_path.exists():
+            sys1_clf = OnnxSystem1Classifier(model_path=model_path, calibration_path=cal_path)
+        elif os.getenv("MEDGEMMA_STRICT_NO_DEMO", "0") != "1":
+            sys1_clf = DemoSandboxSystem1()
+            demo_mode = True
 
     vlm_client = vlm_override if vlm_override is not None else EdgeVLMClient(base_url=vlm_url)
     policy = HarnessPolicy(strict_preflight_block=False)
     harness = LastMileClinicalHarness(policy=policy)
     agent = (
-        DermoscopyTriageAgent(
+        ClinicalTriageOrchestrator(
             system1=sys1_clf,
             vlm_client=vlm_client,
             harness=harness,
@@ -97,8 +134,9 @@ def create_app(
             "offline_edge": True,
             "version": "2.0.0",
             "agent_enabled": agent is not None,
-            "system1_onnx_ready": sys1_clf is not None,
-            "system1_model": str(model_path) if sys1_clf is not None else None,
+            "demo_mode": demo_mode,
+            "system1_onnx_ready": sys1_clf is not None and not demo_mode,
+            "system1_model": str(model_path) if (sys1_clf is not None and not demo_mode) else None,
             "system2_llama_server_ready": sys2_ok,
             "system2_url": vlm_url,
             "db_path": str(resolved_db),
@@ -159,7 +197,6 @@ def create_app(
             current_site=anatom_site,
         )
 
-        agent.agent_cfg.adaptive_routing_enabled = adaptive_routing
         clinical_ctx = ClinicalContext(
             age_years=validated_meta.age_approx,
             sex=validated_meta.sex,
@@ -175,6 +212,7 @@ def create_app(
             use_tta4=use_tta4,
             image_sha256=image_sha,
             prior_context=prior_dto,
+            adaptive_routing=adaptive_routing,
         )
 
         original_b64 = encode_pil_png_b64(pil_img, max_side=384)
@@ -206,6 +244,7 @@ def create_app(
             roi_b64=roi_b64,
         )
         stored["bridge_validated"] = True
+        stored["demo_mode"] = demo_mode
         stored["prior_case_id"] = prior_dto.prior_case_id if prior_dto is not None else None
 
         sys2_status = (
