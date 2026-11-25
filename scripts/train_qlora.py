@@ -1,11 +1,14 @@
 """Fine-tune MedGemma 1.5 4B with QLoRA (NF4 + bfloat16) on ground-truth ISIC triage."""
 
 import argparse
+import dataclasses
+import json
 from pathlib import Path
 from typing import Any
 
 import httpx
 import torch
+from datasets import Dataset
 from peft import LoraConfig, prepare_model_for_kbit_training
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor, BitsAndBytesConfig
@@ -54,7 +57,9 @@ def _prepare_examples(
                 {
                     "isic_id": rec.isic_id,
                     "image_path": str(img_path),
-                    "messages": build_triage_sft_messages(rec),
+                    "messages_json": json.dumps(
+                        build_triage_sft_messages(rec), ensure_ascii=False
+                    ),
                 }
             )
             if idx % 100 == 0 or idx == len(records):
@@ -128,7 +133,7 @@ def main() -> None:
             with Image.open(ex["image_path"]) as img:
                 images.append([img.convert("RGB")])
             formatted = processor.apply_chat_template(
-                ex["messages"],
+                json.loads(ex["messages_json"]),
                 add_generation_prompt=False,
                 tokenize=False,
             ).strip()
@@ -147,6 +152,13 @@ def main() -> None:
         batch["labels"] = torch.tensor(masked_rows, dtype=batch["input_ids"].dtype)
         return batch
 
+    sft_fields = {f.name for f in dataclasses.fields(SFTConfig)}
+    warmup_kwargs: dict[str, float] = (
+        {"warmup_ratio": cfg.qlora.warmup_ratio}
+        if "warmup_ratio" in sft_fields
+        else {"warmup_steps": cfg.qlora.warmup_ratio}
+    )
+
     sft_config = SFTConfig(
         output_dir=str(args.output_dir),
         num_train_epochs=cfg.qlora.num_train_epochs,
@@ -157,7 +169,7 @@ def main() -> None:
         gradient_checkpointing=True,
         learning_rate=cfg.qlora.learning_rate,
         max_grad_norm=cfg.qlora.max_grad_norm,
-        warmup_ratio=cfg.qlora.warmup_ratio,
+        **warmup_kwargs,
         lr_scheduler_type="cosine",
         logging_steps=10,
         save_strategy="steps",
@@ -174,11 +186,14 @@ def main() -> None:
         report_to="none",
     )
 
+    train_dataset = Dataset.from_list(train_examples)
+    eval_dataset = Dataset.from_list(val_examples) if val_examples else None
+
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
-        train_dataset=train_examples,
-        eval_dataset=val_examples if val_examples else None,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         peft_config=peft_config,
         processing_class=processor,
         data_collator=collate_fn,

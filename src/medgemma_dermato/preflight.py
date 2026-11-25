@@ -149,3 +149,60 @@ def evaluate_image_quality(
         metrics=metrics,
         recommendation_fr=recommendation_fr,
     )
+
+
+def crop_dermoscopic_roi(
+    image: Path | str | Image.Image | np.ndarray,
+    dark_threshold: int = 15,
+    min_dark_ratio: float = 0.05,
+    pad_fraction: float = 0.04,
+    eval_max_side: int = 512,
+) -> Image.Image:
+    """Crop out dark circular dermatoscope vignette borders while preserving lesion FOV."""
+    rgb_full = _to_rgb_array(image)
+    orig_h, orig_w = rgb_full.shape[:2]
+
+    rgb_small = _resize_max_side(rgb_full, eval_max_side)
+    small_h, small_w = rgb_small.shape[:2]
+    gray = cv2.cvtColor(rgb_small, cv2.COLOR_RGB2GRAY)
+
+    raw_fg = (gray > dark_threshold).astype(np.uint8)
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
+    roi_mask = cv2.morphologyEx(raw_fg, cv2.MORPH_CLOSE, close_kernel) > 0
+
+    total_pixels = int(gray.size)
+    roi_pixels = int(np.count_nonzero(roi_mask))
+    if roi_pixels == 0:
+        return Image.fromarray(rgb_full, mode="RGB")
+
+    border_dark_ratio = float(total_pixels - roi_pixels) / float(total_pixels)
+    roi_coverage = float(roi_pixels) / float(total_pixels)
+    if border_dark_ratio < min_dark_ratio or roi_coverage < 0.20:
+        return Image.fromarray(rgb_full, mode="RGB")
+
+    ys, xs = np.nonzero(roi_mask)
+    y0_s, y1_s = int(ys.min()), int(ys.max()) + 1
+    x0_s, x1_s = int(xs.min()), int(xs.max()) + 1
+
+    bbox_coverage = float((y1_s - y0_s) * (x1_s - x0_s)) / float(total_pixels)
+    if bbox_coverage >= 0.92:
+        return Image.fromarray(rgb_full, mode="RGB")
+
+    scale_y = orig_h / float(small_h)
+    scale_x = orig_w / float(small_w)
+    y0 = int(round(y0_s * scale_y))
+    y1 = int(round(y1_s * scale_y))
+    x0 = int(round(x0_s * scale_x))
+    x1 = int(round(x1_s * scale_x))
+
+    pad_y = int(round((y1 - y0) * pad_fraction))
+    pad_x = int(round((x1 - x0) * pad_fraction))
+    y0 = max(0, y0 - pad_y)
+    y1 = min(orig_h, y1 + pad_y)
+    x0 = max(0, x0 - pad_x)
+    x1 = min(orig_w, x1 + pad_x)
+
+    if (y1 - y0) < 64 or (x1 - x0) < 64:
+        return Image.fromarray(rgb_full, mode="RGB")
+
+    return Image.fromarray(rgb_full[y0:y1, x0:x1], mode="RGB")

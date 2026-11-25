@@ -15,6 +15,7 @@ build/
 /outputs/
 /checkpoints/
 *.gguf
+*.onnx
 *.safetensors
 *.bin
 *.pt
