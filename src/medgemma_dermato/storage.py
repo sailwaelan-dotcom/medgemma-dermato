@@ -165,32 +165,42 @@ class LocalCaseStore:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """List stored cases ordered newest first with optional zone/patient/search filters."""
-        clauses: list[str] = []
-        params: list[Any] = []
-        if zone:
-            clauses.append("triage_zone = ?")
-            params.append(zone)
-        if patient_ref:
-            clauses.append("LOWER(COALESCE(patient_ref, '')) LIKE ?")
-            params.append(f"%{patient_ref.strip().lower()}%")
-        if query:
-            q = f"%{query.strip().lower()}%"
-            clauses.append(
-                "(LOWER(case_id) LIKE ? OR LOWER(COALESCE(patient_ref, '')) LIKE ? "
-                "OR LOWER(COALESCE(lesion_label, '')) LIKE ? "
-                "OR LOWER(COALESCE(anatom_site, '')) LIKE ? "
-                "OR LOWER(COALESCE(sys1_top_entity, '')) LIKE ?)"
-            )
-            params.extend([q, q, q, q, q])
-
-        where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-        sql = (
-            "SELECT case_id, created_utc, patient_ref, lesion_label, age_years, sex, anatom_site, "
-            "triage_zone, routing_decision, calibrated_risk, p_sys1_cal, p_medgemma_cal, "
-            "sys1_top_entity, tta_risk_std, image_sha256, clinician_notes, original_b64, "
-            f"heatmap_b64, roi_b64 FROM cases {where_sql} ORDER BY created_utc DESC LIMIT ?"
+        zone_param = zone.strip() if zone and zone.strip() else None
+        patient_like = (
+            f"%{patient_ref.strip().lower()}%" if patient_ref and patient_ref.strip() else None
         )
-        params.append(int(limit))
+        query_like = f"%{query.strip().lower()}%" if query and query.strip() else None
+        sql = """
+            SELECT case_id, created_utc, patient_ref, lesion_label, age_years, sex, anatom_site,
+                   triage_zone, routing_decision, calibrated_risk, p_sys1_cal, p_medgemma_cal,
+                   sys1_top_entity, tta_risk_std, image_sha256, clinician_notes, original_b64,
+                   heatmap_b64, roi_b64
+            FROM cases
+            WHERE (? IS NULL OR triage_zone = ?)
+              AND (? IS NULL OR LOWER(COALESCE(patient_ref, '')) LIKE ?)
+              AND (? IS NULL OR (
+                   LOWER(case_id) LIKE ?
+                OR LOWER(COALESCE(patient_ref, '')) LIKE ?
+                OR LOWER(COALESCE(lesion_label, '')) LIKE ?
+                OR LOWER(COALESCE(anatom_site, '')) LIKE ?
+                OR LOWER(COALESCE(sys1_top_entity, '')) LIKE ?
+              ))
+            ORDER BY created_utc DESC
+            LIMIT ?
+        """
+        params = (
+            zone_param,
+            zone_param,
+            patient_like,
+            patient_like,
+            query_like,
+            query_like,
+            query_like,
+            query_like,
+            query_like,
+            query_like,
+            int(limit),
+        )
         with self._connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]

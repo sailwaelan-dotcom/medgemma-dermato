@@ -90,7 +90,9 @@ def create_app(
     cal_path = onnx_calibration_path or Path(
         os.getenv("SYS1_CAL_PATH", "checkpoints/system1_v1/system1_calibration.json")
     )
-    vlm_url = llama_server_url or os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8080")
+    vlm_url: str = (
+        llama_server_url or os.getenv("LLAMA_SERVER_URL") or "http://127.0.0.1:8080"
+    )
     resolved_db = Path(db_path) if db_path is not None else Path(
         os.getenv("MEDGEMMA_DB_PATH", "data/local_cases.db")
     )

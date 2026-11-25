@@ -149,7 +149,16 @@ def validate_for_storage(payload: dict[str, Any]) -> ValidatedStorageEnvelope:
         or (clean_payload.get("assessment") or {}).get("audit", {}).get("timestamp_utc")
         or datetime.now(UTC).isoformat()
     )
-    routing = clean_payload.get("routing_decision")
+    routing_raw = clean_payload.get("routing_decision")
+    if routing_raw not in (
+        "FAST_PATH_SYS1_ONLY",
+        "HYBRID_FULL_S1_PLUS_S2",
+        "DEGRADED_SYS1_ONLY",
+    ):
+        raise StorageFormatIntegrityError(f"Invalid routing_decision: {routing_raw!r}")
+    routing: Literal["FAST_PATH_SYS1_ONLY", "HYBRID_FULL_S1_PLUS_S2", "DEGRADED_SYS1_ONLY"] = (
+        routing_raw
+    )
     digest = compute_payload_sha256(clean_payload)
     return ValidatedStorageEnvelope(
         schema_version=SCHEMA_VERSION,

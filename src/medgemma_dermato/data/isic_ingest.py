@@ -168,11 +168,12 @@ class ISICArchiveClient:
 
         for coll_id in collection_targets:
             next_url: str | None = f"{self.base_url}/images/search/"
-            params: dict[str, Any] | None = {"limit": limit}
+            first_params: dict[str, Any] = {"limit": limit}
             if query:
-                params["query"] = query
+                first_params["query"] = query
             if coll_id is not None:
-                params["collections"] = coll_id
+                first_params["collections"] = coll_id
+            params: dict[str, Any] | None = first_params
 
             while next_url:
                 payload = self._get_json(next_url, params=params)

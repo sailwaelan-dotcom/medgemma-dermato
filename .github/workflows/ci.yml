@@ -6,8 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint-and-test:
+  lint-type-security:
+    name: Code Quality, Mypy & Security Hygiene
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -17,8 +25,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
-      - name: Install package and dev dependencies
+      - name: Install package and static analysis tools
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,edge]"
@@ -26,5 +35,120 @@ jobs:
       - name: Lint with Ruff
         run: ruff check src scripts tests app
 
-      - name: Run unit test suite
-        run: pytest tests -v
+      - name: Type check with Mypy
+        run: mypy src app
+
+      - name: Security scan with Bandit (Medium/High)
+        run: bandit -r src app -ll
+
+  unit-and-coverage:
+    name: Unit Tests & Coverage (>= 75%)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,edge]"
+
+      - name: Run pytest with coverage floor
+        run: pytest tests --cov=medgemma_dermato --cov=app --cov-report=term-missing --cov-fail-under=75
+
+  clinical-safety-gates:
+    name: Barrier 6 — Clinical Safety & Policy-as-Code Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install package and edge dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,edge]"
+
+      - name: Run Adversarial, Harness & DB-Model Bridge Suites
+        run: pytest tests/test_adversarial.py tests/test_clinical_harness.py tests/test_db_model_bridge.py -v
+
+      - name: Enforce Reference Policy-as-Code Deployment Gates
+        run: python scripts/verify_policy_gates.py
+
+  docker-and-edge-cli-smoke:
+    name: Pure [edge] CLI & Docker Sandbox Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Verify pure [edge] install & CLI commands (without [train])
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[edge]"
+          medgemma-dermato --help
+          medgemma-dermato serve --help
+          medgemma-dermato download-system1 --help
+          python -c "import huggingface_hub, fpdf, fastapi, onnxruntime; print('EDGE_IMPORTS_OK')"
+
+      - name: Build Edge Cabinet Docker image
+        run: docker build -t medgemma-edge:ci .
+
+      - name: Smoke test containerized Sandbox API (health + analyze + PDF)
+        run: |
+          docker run -d --name edge-ci -p 8000:8000 medgemma-edge:ci
+          python - << 'EOF'
+          import io, time, httpx
+          from PIL import Image
+
+          for _ in range(30):
+              try:
+                  r = httpx.get("http://127.0.0.1:8000/api/health", timeout=2.0)
+                  if r.status_code == 200:
+                      h = r.json()
+                      assert h["status"] == "ok", h
+                      assert h["demo_mode"] is True, h
+                      print("HEALTH_OK:", h)
+                      break
+              except Exception:
+                  pass
+              time.sleep(1.0)
+          else:
+              raise RuntimeError("Container failed healthcheck")
+
+          buf = io.BytesIO()
+          Image.new("RGB", (512, 512), color=(190, 145, 130)).save(buf, format="JPEG", quality=95)
+          resp = httpx.post(
+              "http://127.0.0.1:8000/api/analyze",
+              files={"image": ("smoke.jpg", buf.getvalue(), "image/jpeg")},
+              data={"patient_ref": "CI-SMOKE", "age_years": "55"},
+              timeout=30.0,
+          )
+          assert resp.status_code == 200, resp.text
+          cid = resp.json()["case_id"]
+          pdf = httpx.get(f"http://127.0.0.1:8000/api/cases/{cid}/report.pdf", timeout=15.0)
+          assert pdf.status_code == 200, pdf.text
+          assert pdf.content.startswith(b"%PDF-")
+          print("DOCKER_SMOKE_OK:", cid, len(pdf.content))
+          EOF
+
+      - name: Cleanup Docker container
+        if: always()
+        run: docker rm -f edge-ci || true

@@ -5,7 +5,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from medgemma_dermato.schema import parse_assessment_json, parse_triage_json
+from medgemma_dermato.schema import (
+    DermoscopyAssessment,
+    TriageAssessment,
+    parse_assessment_json,
+    parse_triage_json,
+)
 
 TaskMode = Literal["semiology", "triage"]
 
@@ -134,6 +139,8 @@ def evaluate_predictions(
         if case.ground_truth_entity is not None:
             entity_total += 1
 
+        parsed: TriageAssessment | DermoscopyAssessment | None
+        err: str | None
         if task_mode == "triage":
             parsed, err = parse_triage_json(case.raw_model_output)
         else:
@@ -179,16 +186,20 @@ def evaluate_predictions(
                 calib_correctness.append(not pred_malignant)
 
         if task_mode == "triage" and case.ground_truth_entity is not None:
-            if parsed.entity_category == case.ground_truth_entity:  # type: ignore[union-attr]
+            if (
+                isinstance(parsed, TriageAssessment)
+                and parsed.entity_category == case.ground_truth_entity
+            ):
                 entity_correct += 1
 
         if task_mode == "semiology" and case.ground_truth_semiology:
-            sem_dict = parsed.semiology.model_dump()  # type: ignore[union-attr]
-            for key, gt_val in case.ground_truth_semiology.items():
-                if key in sem_dict:
-                    semiology_counts[key] += 1
-                    if sem_dict[key] == gt_val:
-                        semiology_hits[key] += 1
+            if isinstance(parsed, DermoscopyAssessment):
+                sem_dict = parsed.semiology.model_dump()
+                for key, gt_val in case.ground_truth_semiology.items():
+                    if key in sem_dict:
+                        semiology_counts[key] += 1
+                        if sem_dict[key] == gt_val:
+                            semiology_hits[key] += 1
 
     json_valid_rate = round(json_valid_count / total_cases, 4) if total_cases > 0 else 0.0
     abstention_rate = (

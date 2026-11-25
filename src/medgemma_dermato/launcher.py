@@ -135,6 +135,9 @@ def serve_command(args: argparse.Namespace) -> int:
     return 0
 
 
+DEFAULT_SYS1_REVISION = "99707777873c87c1b73244273b05b47d60ce27cd"
+
+
 def download_system1_command(args: argparse.Namespace) -> int:
     """Download public CC-0/CC-BY System 1 ONNX weights from Hugging Face Hub."""
     from huggingface_hub import hf_hub_download
@@ -142,10 +145,14 @@ def download_system1_command(args: argparse.Namespace) -> int:
     target_dir = Path(args.output_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     for fname in ("system1_convnext_tiny_fp32.onnx", "system1_calibration.json"):
-        print(f"[download-system1] Downloading {fname} from {args.repo_id}...", flush=True)
+        print(
+            f"[download-system1] Downloading {fname} from {args.repo_id}@{args.revision[:10]}...",
+            flush=True,
+        )
         hf_hub_download(
             repo_id=args.repo_id,
             filename=fname,
+            revision=args.revision,
             local_dir=str(target_dir),
         )
     print(f"[download-system1] Ready in {target_dir}", flush=True)
@@ -171,6 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Download public CC-0/CC-BY System 1 ConvNeXt-Tiny ONNX weights (106 MB).",
     )
     dl.add_argument("--repo-id", default="SChaf09/medgemma-dermato-system1-onnx")
+    dl.add_argument("--revision", default=DEFAULT_SYS1_REVISION)
     dl.add_argument("--output-dir", type=Path, default=Path("checkpoints/system1_v1"))
     return parser
 

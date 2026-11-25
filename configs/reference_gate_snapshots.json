@@ -1,0 +1,60 @@
+{
+  "dataset": "MSKCC Consecutive Biopsies 2020 (Collection 163, locked blind hold-out, n=200)",
+  "snapshots": [
+    {
+      "name": "bf16_hybrid_v1_no_preflight_block",
+      "expected_decision": "PASS",
+      "metrics": {
+        "json_valid_rate": 1.0,
+        "malignant_safe_sensitivity": 0.9571,
+        "melanoma_safe_sensitivity": 0.9744,
+        "green_zone_npv": 0.9211,
+        "green_zone_benign_specificity": 0.3043
+      }
+    },
+    {
+      "name": "bf16_hybrid_v1_strict_preflight",
+      "expected_decision": "BLOCK_DEPLOY",
+      "metrics": {
+        "json_valid_rate": 1.0,
+        "malignant_safe_sensitivity": 0.9714,
+        "melanoma_safe_sensitivity": 1.0,
+        "green_zone_npv": 0.913,
+        "green_zone_benign_specificity": 0.1826
+      }
+    },
+    {
+      "name": "gguf_q4_k_m_v1",
+      "expected_decision": "BLOCK_DEPLOY",
+      "metrics": {
+        "json_valid_rate": 1.0,
+        "malignant_safe_sensitivity": 0.4429,
+        "melanoma_safe_sensitivity": 0.4359,
+        "green_zone_npv": 0.688,
+        "green_zone_benign_specificity": 0.7478
+      }
+    },
+    {
+      "name": "edge_q8_1pass_v1",
+      "expected_decision": "BLOCK_DEPLOY",
+      "metrics": {
+        "json_valid_rate": 0.995,
+        "malignant_safe_sensitivity": 0.9143,
+        "melanoma_safe_sensitivity": 0.9487,
+        "green_zone_npv": 0.8421,
+        "green_zone_benign_specificity": 0.2783
+      }
+    },
+    {
+      "name": "edge_q8_3branch_v1",
+      "expected_decision": "BLOCK_DEPLOY",
+      "metrics": {
+        "json_valid_rate": 0.995,
+        "malignant_safe_sensitivity": 0.9143,
+        "melanoma_safe_sensitivity": 0.9487,
+        "green_zone_npv": 0.8537,
+        "green_zone_benign_specificity": 0.3043
+      }
+    }
+  ]
+}
