@@ -1,5 +1,7 @@
 # MedGemma 1.5 4B — Hybrid Edge Dermoscopy & Last-Mile Clinical Safety Harness
 
+[![CI](https://github.com/sailwaelan-dotcom/medgemma-dermato/actions/workflows/ci.yml/badge.svg)](https://github.com/sailwaelan-dotcom/medgemma-dermato/actions/workflows/ci.yml)
+
 > **Langue :** [English (README.md)](README.md) | **Français**  
 > **Positionnement réglementaire — Research Use Only (RUO) & Hors-MDR :** Ce dépôt est un démonstrateur d'architecture IA santé (*pre-analytical QA*, pré-triage calibré, explicabilité visuelle et rédaction structurée de fiche d'adressage). Il ne constitue **pas** un dispositif médical (UE MDR Classe IIa) et n'émet aucun diagnostic clinique autonome. Les poids de base `google/medgemma-1.5-4b-it` sont soumis aux conditions **Google Health AI Developer Foundations (HAI-DEF)**.
 

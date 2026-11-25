@@ -1,5 +1,7 @@
 # MedGemma 1.5 4B — Offline Edge Clinical Triage & Last-Mile Safety Harness
 
+[![CI](https://github.com/sailwaelan-dotcom/medgemma-dermato/actions/workflows/ci.yml/badge.svg)](https://github.com/sailwaelan-dotcom/medgemma-dermato/actions/workflows/ci.yml)
+
 > **Language:** **English** | [Français (README.fr.md)](README.fr.md)  
 > **Regulatory Scope — Research Use Only (RUO / Non-MDR):** This repository is an architectural and clinical AI safety demonstrator (*pre-analytical optical QA*, calibrated 3-zone pre-triage, visual explainability, and structured GP referral drafting). It is **not** a certified medical device (EU MDR Class IIa) and never issues autonomous diagnoses. Base weights (`google/medgemma-1.5-4b-it`) are subject to the **Google Health AI Developer Foundations (HAI-DEF)** license terms.
 
