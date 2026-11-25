@@ -124,6 +124,10 @@ def serve_command(args: argparse.Namespace) -> int:
     if args.open:
         webbrowser.open(app_url)
 
+    cwd_str = str(Path.cwd())
+    if cwd_str not in sys.path:
+        sys.path.insert(0, cwd_str)
+
     try:
         uvicorn.run("app.main:app", host=args.host, port=args.port, log_level="info")
     finally:

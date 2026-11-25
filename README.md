@@ -1,182 +1,136 @@
-# MedGemma 1.5 4B — Hybrid Edge Dermoscopy & Last-Mile Clinical Safety Harness
+# MedGemma 1.5 4B — Offline Edge Clinical Triage & Last-Mile Safety Harness
 
-> **Positionnement réglementaire — Research Use Only (RUO) & Hors-MDR :** Ce dépôt est un démonstrateur d'architecture IA santé (*pre-analytical QA*, pré-triage calibré et rédaction structurée de fiche d'adressage). Il ne constitue **pas** un dispositif médical (UE MDR Classe IIa) et n'émet aucun diagnostic clinique autonome. Les poids de base `google/medgemma-1.5-4b-it` sont soumis aux conditions **Google Health AI Developer Foundations (HAI-DEF)**.
+> **Language:** **English** | [Français (README.fr.md)](README.fr.md)  
+> **Regulatory Scope — Research Use Only (RUO / Non-MDR):** This repository is an architectural and clinical AI safety demonstrator (*pre-analytical optical QA*, calibrated 3-zone pre-triage, visual explainability, and structured GP referral drafting). It is **not** a certified medical device (EU MDR Class IIa) and never issues autonomous diagnoses. Base weights (`google/medgemma-1.5-4b-it`) are subject to the **Google Health AI Developer Foundations (HAI-DEF)** license terms.
 
-Architecture hybride **100 % offline sur Edge** (PC de cabinet ou smartphone haut de gamme) orchestrée par l'agent adaptatif à 6 outils **`DermoscopyTriageAgent`** : **System 1 vision léger ONNX (`ConvNeXt-Tiny`, multi-centres)** + recadrage ROI conditionnel, **System 2 VLM médical fine-tuné (`MedGemma 1.5 4B QLoRA v1`, exporté en GGUF `Q8_0` avec `logprobs` natifs)**, et **Last-Mile Clinical Safety Harness déterministe à 6 verrous** évalué en aveugle sur un hôpital externe jamais vu (**MSKCC Consecutive Biopsies 2020, `n=200`**).
+A **100% offline Edge clinical workstation** combining a lightweight multi-center ONNX vision screener (**System 1: `ConvNeXt-Tiny`**, `106 MB`, zero PyTorch at runtime), a fine-tuned multimodal medical VLM (**System 2: `MedGemma 1.5 4B QLoRA`**, exported to `GGUF Q8_0` with **3-branch chain-rule native logprobs**), a **bidirectional SHA-256 SQLite ↔ Model Validator Bridge**, and a **6-barrier deterministic Safety Harness** evaluated blind on an unseen external hospital biopsy cohort (**MSKCC Consecutive Biopsies 2020, `n=200`**).
 
 ---
 
-## 1. Architecture Système (Edge Clinique Offline + Boucle Cloud GCP)
+## Live Edge UI Preview (100% Offline, Local RTX 4080 + SQLite + PDF)
+
+| Tab 1: Red Zone + ONNX Occlusion XAI + 6-Step Trace | Tab 1: DB↔Model Bridge Follow-Up (`AMBER` Escalation) | Tab 3: Longitudinal Comparison (ABCDE Evolution) |
+| :---: | :---: | :---: |
+| ![Red Zone & ONNX XAI](docs/assets/ui_triage_red_xai_trace.png) | ![Bridge Follow-Up](docs/assets/ui_triage_bridge_amber.png) | ![Longitudinal Compare](docs/assets/ui_longitudinal_compare.png) |
+
+---
+
+## Three Engineering Decisions That Define This System
+
+1. **Catching Silent 4-Bit Clinical Collapse (`Q4_K_M` Rejected by CI/CD Gate):** Quantizing MedGemma 1.5 4B to `Q4_K_M` keeps **`100.0%` valid JSON** and clean-looking ECE (`0.164`), yet silently drops malignant sensitivity by **`-31.4 pts`** (`75.7% → 44.3%`, missing over half of melanomas). Standard format/perplexity checks miss this completely; our policy-as-code `DeploymentGate` blocks it automatically.
+2. **Bounded Deterministic Orchestration Over Unconstrained LLM Loops ([ADR-001](docs/ADR_001_deterministic_orchestration.md)):** As a certified *Google Cloud Professional Agentic Architect*, critical clinical routing is implemented as a deterministic, auditable 6-step pipeline (`ClinicalTriageOrchestrator`) — never an autonomous ReAct loop — guaranteeing that preflight QA, TTA instability checks, ABCDE red flags, and contradiction blockers cannot be skipped under prompt pressure.
+3. **Bidirectional SQLite ↔ Model Format Validator ([`db_model_bridge.py`](src/medgemma_dermato/db_model_bridge.py)):** Every stored exam is wrapped in a `schema_version="2.0"` envelope sealed with a canonical **SHA-256 integrity digest**. When linking a follow-up visit, the bridge strips PII (`patient_ref`, free-text clinician notes) and Jinja/control injection tokens, isolates prior verdicts from MedGemma's prompt to prevent **anchoring bias**, and passes `LongitudinalPriorDTO` strictly to deterministic post-inference rules (`LONGITUDINAL_BRIDGE_EVOLUTION`).
+
+---
+
+## 1. System Architecture
 
 ```mermaid
 flowchart LR
-    subgraph EDGE["Cabinet / Edge 100% Offline (Zéro fuite PHI — Anti Shadow AI)"]
-        IMG["Cliché dermatoscopique\n+ Contexte clinique (ABCDE)"]
-        V1["Verrou 1 — Preflight QA\n(OpenCV CPU: flou, reflets, poils)"]
-        S1["System 1 — ConvNeXt-Tiny ONNX\n106 Mo · 469 ms CPU · 5 centres\n(Score calibré + TTA-4 + ROI crop)"]
-        RT["DermoscopyTriageAgent (6 outils)\nRouteur adaptatif (Always-On sûr\nou Fast-Path opt-in < 6.7%)"]
-        S2["System 2 — MedGemma 1.5 4B QLoRA v1\nllama.cpp GGUF Q8_0 + mmproj FP16\n(Log-probs natifs + sémiologie JSON)"]
-        H["Last-Mile Clinical Safety Harness\n• Fusion 50/50 calibrée sur Val\n• Verrou 2: Désaccord S1/S2 + TTA + Mélanome\n• Verrou 3: Bloqueur contradiction Texte↔Risque\n• Verrou 4: Red flags cliniques (E/saignement)\n• Verrou 5: Audit Trail JSON SHA-256"]
-        UI["FastAPI Offline UI + Plan GP\n🟢 Vert · 🟡 Gris · 🔴 Rouge\n(Fiche FR + questions anamnèse)"]
-        IMG --> V1 --> S1 --> RT
-        RT -->|"Always-On / Escalade"| S2 --> H
-        RT -->|"Fast-Path opt-in"| H
-        H --> UI
+    subgraph EDGE["100% Offline Clinic Edge (Zero PHI Leakage)"]
+        IMG["Dermoscopy Image\n+ ABCDE Context"]
+        V1["Barrier 1 — Preflight QA\n(OpenCV CPU: blur, glare, hair)"]
+        S1["System 1 — ConvNeXt-Tiny ONNX\n106 MB · 469 ms CPU · 5 Cohorts\n(Calibrated Risk + TTA-4 + Occlusion XAI)"]
+        ORCH["ClinicalTriageOrchestrator\n(6 Deterministic Steps · ADR-001)\nAlways-On Safe or Opt-In Fast-Path"]
+        S2["System 2 — MedGemma 1.5 4B QLoRA\nllama-server GGUF Q8_0 + mmproj FP16\n(3-Branch Chain-Rule Logprobs + JSON)"]
+        H["Last-Mile 6-Barrier Safety Harness\n• 50/50 Calibrated Late Fusion\n• Disagreement + TTA + Melanoma Guard\n• Text↔Risk Contradiction Blocker\n• ABCDE Red Flags + Audit SHA-256"]
+        BR["DB↔Model Validator Bridge\n(SHA-256 Seal + Zero-Anchoring DTO)"]
+        DB["Local SQLite + 1-Page PDF\n(History & J0 vs J+N Evolution)"]
+        IMG --> V1 --> S1 --> ORCH
+        ORCH -->|"Always-On / Escalate"| S2 --> H
+        ORCH -->|"Opt-In Fast-Path"| H
+        H <-->|"validate_for_storage / hydrate"| BR <--> DB
     end
-
-    subgraph CLOUD["Plan de contrôle & MLOps (Google Cloud / Colab GPU)"]
-        ISIC["Ingestion ISIC v2\n100% CC-0/CC-BY · Anti-leakage"]
-        TR["Fine-tuning QLoRA & ConvNeXt\n(NVIDIA L4 · FinOps contrôlé)"]
-        GATE["Verrou 6 — CI/CD Deployment Gate\n(Non-régression BF16 → GGUF\n+ Policy-as-Code MSKCC n=200)"]
-        REG["Registre privé\n(HF Private GGUF + Drive Checkpoints)"]
-        ISIC --> TR --> GATE --> REG
-    end
-
-    REG -. "Déploiement poids validés" .-> EDGE
 ```
 
 ---
 
-## 2. Résultats clés sur le Hold-Out Externe Verrouillé (`MSKCC 2020`, `n=200`)
+## 2. Blind External Hospital Results (`MSKCC 2020`, `n=200`)
 
-**Protocole anti-leakage strict :**
-- `google/medgemma-1.5-4b-it` ayant intégré `40 269` exemples d'ISIC 2017/2018 `CC-0` au pré-entraînement, toutes les collections 2017/2018/HAM10000 sont exclues du test.
-- Le jeu de test verrouillé (`data/isic_v1/test.jsonl`, **Collection 163 — MSKCC Consecutive Biopsies 2020**, `100 % CC-BY`, `0` ID pré-2019) contient **`70` malins** (`39` mélanomes dont `19` *in situ*, `19` SCC, `12` BCC), **`115` lésions bénignes 100 % biopsiées** (lésions mimétiques ayant déjà trompé des dermatologues experts : LPLK, lentigos solaires, SK atypiques, neurofibromes…) et **`15` indéterminées**.
-- **0 image, 0 patient et 0 lésion MSKCC** en entraînement ou calibration. Tous les paramètres (`T`, `τ`) sont calibrés uniquement sur `val`.
+**Strict Anti-Leakage Protocol:** `google/medgemma-1.5-4b-it` pre-training included ISIC 2017/2018 `CC-0` images, so all 2017/2018/HAM10000 collections are excluded from test. Our locked external hold-out (`data/isic_v1/test.jsonl`, **Collection 163 — MSKCC Consecutive Biopsies 2020**, `100% CC-BY`) contains **`70` malignancies** (`39` melanomas incl. `19` *in situ*, `19` SCC, `12` BCC), **`115` biopsied benign mimics** (lesions that already fooled expert dermatologists), and **`15` indeterminate** lesions. **Zero MSKCC images/patients/lesions** appear in training or calibration (`T`, `τ` fitted strictly on `val`).
 
-### 2.1 Progression de bout en bout (Zero-Shot → QLoRA → Calibration → Hybride + Harness)
+### 2.1 End-to-End Progression (Zero-Shot → QLoRA → BF16 Option C → Local RTX 4080 `Q8_0`)
 
-| Étape / Configuration | AUROC | Sensibilité Malins | Sensibilité Mélanome | Spécificité (Zone Verte) | NPV Zone Verte | ECE (cal.) | Contradictions texte bloquées | Gate CI/CD |
+| Configuration | AUROC | Malignant Sens. | Melanoma Sens. | Green Spec. | Green NPV | ECE | Contradictions Blocked | CI/CD Gate |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
-| 1. MedGemma 1.5 Zero-Shot (Neutre) | — | `20.0 %` (`14/70`) | `17.9 %` (`7/39`) | `90.4 %` | — | `0.2950` | — | `BLOCK` |
-| 2. MedGemma QLoRA v1 (Greedy, 1 centre HIBA) | — | `75.7 %` (`53/70`) | `76.9 %` (`30/39`) | `52.2 %` | — | `0.1863` | — | `BLOCK` |
-| 3. MedGemma QLoRA v1 (Log-probs exacts `@val95%`) | **`0.7096`** | `81.4 %` (`57/70`) | `82.0 %` (`32/39`) | `47.8 %` | `80.9 %` | `0.1959` | — | `BLOCK` |
-| 4. System 1 `ConvNeXt-Tiny` ONNX (`@mc_val95%`, 5 centres) | `0.6537` | `84.3 %` (`59/70`) | `87.2 %` (`34/39`) | `39.1 %` | `80.4 %` | `0.2280` | — | `BLOCK` |
-| **5. Hybride 50/50 + Harness Dernier Kilomètre (3-Zones)** | `0.6944` | **`95.7 %`** (`67/70`) | **`97.4 %`** (`38/39`) | **`30.4 %`** (`35/115`) | **`92.1 %`** | **`0.1737`** | **`43` (dont `14` cancers)** | **`PASS`** |
-| 6. Hybride 50/50 + Harness + Blocage strict Preflight QA | `0.6944` | **`97.1 %`** (`68/70`) | **`100.0 %`** (`39/39`) | `18.3 %` (`21/115`) | `91.3 %` | `0.1737` | **`60` (dont `15` cancers)** | `BLOCK` *(spec < 20 %)* |
+| 1. MedGemma 1.5 Zero-Shot (Neutral) | — | `20.0%` (`14/70`) | `17.9%` (`7/39`) | `90.4%` | — | `0.2950` | — | `BLOCK` |
+| 2. MedGemma QLoRA v1 (BF16 Greedy, HIBA) | — | `75.7%` (`53/70`) | `76.9%` (`30/39`) | `52.2%` | — | `0.1863` | — | `BLOCK` |
+| 3. MedGemma QLoRA v1 (BF16 Chain-Rule `@val95%`) | **`0.7096`** | `81.4%` (`57/70`) | `82.0%` (`32/39`) | `47.8%` | `80.9%` | `0.1959` | — | `BLOCK` |
+| 4. System 1 `ConvNeXt-Tiny` ONNX (5-center `@mc_val95%`) | `0.6537` | `84.3%` (`59/70`) | `87.2%` (`34/39`) | `39.1%` | `80.4%` | `0.2280` | — | `BLOCK` |
+| **5. Hybrid BF16 (50/50) + Last-Mile Harness** | `0.6944` | **`95.7%`** (`67/70`) | **`97.4%`** (`38/39`) | **`30.4%`** (`35/115`) | **`92.1%`** | `0.1737` | **`43` (`14` cancers)** | **`PASS`** |
+| 6. Edge `Q8_0` 1-Pass Logprobs + ONNX + Harness (RTX 4080) | `0.6920` | `91.4%` (`64/70`) | `94.9%` (`37/39`) | `27.8%` (`32/115`) | `84.2%` | `0.1676` | **`57` (`15` cancers)** | `BLOCK` |
+| **7. Edge `Q8_0` 3-Branch Logprobs + ONNX + Harness (RTX 4080)** | `0.6976` *(S2 `0.7022`)* | `91.4%` (`64/70`) | `94.9%` (`37/39`) | **`30.4%`** (`35/115`) | `85.4%` | **`0.1594`** | **`52` (`15` cancers)** | **`BLOCK`** |
 
-> **Complémentarité réelle dans la zone clinique à haute sensibilité (`r = 0.61`) :** à sensibilité identique (`95.7 %`, `67/70` cancers), la fusion `50/50` atteint `33.9 %` de spécificité en oracle (`30.4 %` à l'aveugle) contre `22.6 %` pour MedGemma seul (`+11.3 pts`) et `15.7 %` pour System 1 seul (`+18.2 pts`). Sur la population de dépistage HIBA `val` (`n=230`), le harness complet atteint **`99.1 %` de sensibilité**, **`98.7 %` de NPV Zone Verte** et **`64.6 %` de spécificité Zone Verte**.
+> **Honest CI/CD Gate Governance:** On RTX 4080 (`0.00 CU` Colab, `3.4 s/case`), **3-branch KV-cached marginalization** in [`edge_vlm.py`](src/medgemma_dermato/edge_vlm.py) pushes standalone `Q8_0` AUROC to `0.7022` (`0.9446` on HIBA val), achieves the project's **best calibration (`ECE = 0.1594`)**, and restores full `30.4%` Green Specificity — while the CI/CD gate intentionally stays at `BLOCK_DEPLOY` (`91.4% < 95.0%` floor due to 8-bit quantization margin compression on 6 borderline cases).
 
-### 2.2 Sprint 4 — Quantification Edge GGUF & Détection de Régression Silencieuse (`mmproj` FP16)
+### 2.2 Sprint 4 — GGUF Quantization Non-Regression (`mmproj` FP16 `811.8 MB`)
 
-| Modèle (`MedGemma 1.5 4B QLoRA v1`) | Taille totale (`+ mmproj FP16`) | JSON valide | Sens. Maligne Directe | Sens. Triage Sûr | Sens. Mélanome | Spécificité | Acc. Entité | Latence L4 | Statut Harness |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `BF16 Merged` (PyTorch référence) | `~8.5 Go` | `100.0 %` | `61.4 %` | `75.7 %` | `76.9 %` | `52.2 %` | `22.0 %` | `7 583 ms` | Référence |
-| **`GGUF Q8_0 + mmproj FP16`** | **`4.76 Go`** (`3.95 + 0.81`) | `99.5 %` | `60.0 %` | `70.0 %` (`-5.7 pts`) | `69.2 %` | **`61.7 %`** | **`27.5 %`** | **`2 784 ms`** (`2.7×`) | Plancher sûr min. *(avec S1+Harness : `91.4 %` mal / `92.3 %` mél)* |
-| **`GGUF Q4_K_M + mmproj FP16`** | `3.19 Go` (`2.38 + 0.81`) | **`100.0 %`** | `32.9 %` | **`44.3 %` (`-31.4 pts`)** | **`43.6 %`** | `74.8 %` | `25.0 %` | `2 033 ms` (`3.7×`) | **REJETÉ / BLOQUÉ** *(effondrement clinique silencieux)* |
+| Model | Total Size | Valid JSON | Safe Triage Sens. | Melanoma Sens. | Specificity | Latency (L4) | Gate Verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `BF16 Merged` (Reference) | `~8.5 GB` | `100.0%` | `75.7%` | `76.9%` | `52.2%` | `7,583 ms` | Reference |
+| **`GGUF Q8_0 + mmproj FP16`** | **`4.76 GB`** | `99.5%` | `70.0%` (`-5.7 pts`) | `69.2%` | **`61.7%`** | `2,784 ms` | Minimum safe floor |
+| **`GGUF Q4_K_M + mmproj FP16`** | `3.19 GB` | **`100.0%`** | **`44.3%` (`-31.4 pts`)** | **`43.6%`** | `74.8%` | `2,033 ms` | **REJECTED / BLOCKED** |
 
-> **Enseignement clé IA Santé :** la quantification 4-bit (`Q4_K_M`) conserve **`100.0 %` de JSON syntaxiquement valides** et une ECE apparente propre (`0.164`), tout en provoquant une **chute catastrophique de `-31.4 pts` en sensibilité** (plus de la moitié des mélanomes manqués). Sans harness de non-régression clinique, cette dérive passerait totalement inaperçue. **`Q8_0 + mmproj-FP16` (`4.76 Go`)** est le plancher de quantification validé, et l'accès aux **log-probabilités continues** (plutôt que la confiance discrète générée en JSON) reste nécessaire pour franchir le gate strict `≥ 95 %`.
+### 2.3 Adversarial Red-Teaming (`13/13 PASS`) & Curves
 
-### 2.3 Benchmark Edge 100 % Offline (`RTX 4080 · Q8_0 Native Log-Probs`)
+[`scripts/run_adversarial_stress_test.py`](scripts/run_adversarial_stress_test.py) verifies **`13/13` (`100.0%`)** adversarial barriers: optical corruptions (Gaussian blur, specular glare, hair, exposure extremes, poor framing), epistemic disagreement & TTA instability, melanoma sub-score guard, text-vs-risk contradiction blocker, RUO regex sanitizer, ABCDE red-flag overrides, schema & `Q4_K_M` gate rejection, and real ONNX perturbation stability (`JPEG-35 drift = 0.0550`, `white-balance drift = 0.0407`).
 
-Exécuté **100 % en local offline** sur **NVIDIA RTX 4080 Laptop (`0.00 CU` Colab)** via `llama-server` (`logprobs: true, top_logprobs: 20` sur le premier sous-mot d'entité juste après `"entity_category":"`), avec température calibrée uniquement sur `HIBA val (n=230)` (`T = 1.4673`, `τ_val95 = 0.4371`) et évaluation en aveugle sur **MSKCC 2020 (`n=200`)** :
-
-| Configuration Edge (`RTX 4080`) | AUROC | Sens. Malins | Sens. Mélanome | Spécificité Zone Verte | NPV Zone Verte | ECE (cal.) | Latence | Gate CI/CD |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| `Q8_0` Log-probs natifs seul (`@val95%`) | `0.6914` *(val `0.9326`)* | `72.9 %` (`51/70`) | `74.4 %` | `57.4 %` | `77.6 %` | `0.2026` | `3 515 ms` | — |
-| **Edge `Q8_0` Log-probs + ONNX + Harness** | `0.6920` | `91.4 %` (`64/70`) | **`94.9 %`** (`37/39`) | `27.8 %` (`32/115`) | `84.2 %` | **`0.1676`** | `3 515 ms` | **`BLOCK_DEPLOY`** |
-
-- **Extraction continue réelle :** `logprobs_used_rate = 100.0 %` (`430/430` clichés `val + test`), `json_valid_rate = 99.5 %`, **`57` contradictions texte↔risque bloquées (dont `15` vrais cancers)**, et **meilleure calibration du projet (`ECE = 0.1676`)**.
-- **Pourquoi le Gate CI/CD retourne honnêtement `BLOCK_DEPLOY` (`91.4 % < 95 %`) :** en une seule passe `llama-server`, les log-probs d'entité sont conditionnés par le préfixe *greedy* `melanocytic_pattern` ($P(\text{entity} \mid m_{\text{greedy}}, x)$), alors que l'Option C PyTorch BF16 marginalise sur les 3 branches `melanocytic_pattern` (`95.7 %` malins, `PASS`). Le garde-fou remplit donc exactement son rôle en refusant le déploiement automatique tant que la marginalisation multi-branches ou un `QLoRA v2` multi-centres n'a pas restauré le plancher `≥ 95 %` en Edge pur.
-
-### 2.4 Courbes & Visualisations
-
-| Entraînement QLoRA (`260` steps, L4) | ROC & PR Externe MSKCC (`n=200`) | Répartition 3-Zones Last-Mile Harness |
+| QLoRA Training Curves | Hybrid ROC & PR (`MSKCC n=200`) | 3-Zone Harness Distribution |
 | :---: | :---: | :---: |
 | ![Training Curves](docs/assets/training_curves.svg) | ![Hybrid ROC & PR](docs/assets/hybrid_roc_pr.svg) | ![3-Zone Harness](docs/assets/harness_3zone_chart.svg) |
 
 ---
 
-## 3. Agent Adaptatif (`DermoscopyTriageAgent`) & Suite Adversariale (`13/13 PASS`)
-
-### 3.1 Orchestrateur à 6 outils (`src/medgemma_dermato/agent.py`)
-
-L'agent encapsule le pipeline dans une trace horodatée et reproductible de 6 outils déterministes :
-1. **`optical_preflight_qa`** : contrôle netteté, reflets spéculaires, poils, exposition et vignettage circulaire.
-2. **`system1_onnx_triage`** : inférence `ConvNeXt-Tiny` ONNX CPU avec instabilité TTA-4.
-3. **`dermoscopic_roi_crop_recheck`** *(conditionnel)* : recadrage automatique du cône noir périphérique si vignettage `>= 20 %` ou instabilité TTA élevée, avec prise du maximum conservateur.
-4. **`adaptive_vlm_router`** : arbitrage entre **Always-On Hybride S1+S2** *(défaut sécurisé)* et **Fast-Path S1 seul** *(opt-in UI)* ou repli explicite `DEGRADED_SYS1_ONLY` si `llama-server` est hors ligne.
-5. **`last_mile_safety_harness`** : fusion calibrée, règle de désaccord, garde-fou mélanome, bloqueur de contradiction texte↔risque, red flags ABCDE et `AuditTrail` SHA-256.
-6. **`clinical_action_plan_builder`** : génération d'une **fiche d'adressage médecin prête à copier** et de **questions d'anamnèse priorisées** selon les données manquantes.
-
-> **Arbitrage Safety-First mesuré empiriquement (`tau_mc_val_99 = 0.0670` calibré sur `n=1 068` multi-centres) :** sur le dépistage `HIBA val (n=230)`, le Fast-Path économise **`35.2 %`** d'appels VLM 4B (`81/230`) avec **0 perte de sensibilité** (`99.1 %` malins, `98.8 %` NPV, `75.2 %` spécificité Zone Verte). En revanche, sur les biopsies difficiles externes `MSKCC (n=200)`, il économise `15.5 %` d'appels mais coûte `+2` faux négatifs (`95.7 % → 92.9 %`). C'est pourquoi `adaptive_routing_enabled` reste **`False` par défaut** et n'est activable qu'en opt-in explicite.
-
-### 3.2 Red-Teaming & Stress-Test Adversarial (`13/13 PASS`)
-
-La suite [`scripts/run_adversarial_stress_test.py`](scripts/run_adversarial_stress_test.py) & [`tests/test_adversarial.py`](tests/test_adversarial.py) valide **`13/13` (`100.0 %`)** vecteurs adversariaux de bout en bout :
-- **Corruptions optiques (`ADV-00` à `ADV-05`) :** flou gaussien, reflets spéculaires (`0.185`), pilosité excessive (`0.533`), sous/sur-exposition, basse résolution et mauvais cadrage → escalade automatique en `AMBER_UNCERTAIN_TELEEXPERTISE`.
-- **Incertitude & garde-fous cliniques (`ADV-06` à `ADV-10`) :** désaccord S1/S2 et instabilité TTA, alerte sous-score mélanome, blocage de contradiction texte rassurant vs score élevé (`RED`), neutralisation réglementaire Hors-MDR, et overrides ABCDE (évolution, saignement, lésion > 50 ans, antécédents).
-- **Contrats, CI/CD & robustesse ONNX réelle (`ADV-11` à `ADV-12`) :** rejet Pydantic de schémas invalides, blocage `BLOCK_DEPLOY` sur `Q4_K_M`, et perturbation réelle sur 5 dermoscopies MSKCC avec le modèle ONNX (`derive JPEG-35 = 0.0550`, `balance des blancs = 0.0407`).
-
----
-
-## 4. Benchmarks Edge CPU (Zéro PyTorch) & FinOps
-
-- **System 1 ONNX (`system1_convnext_tiny_fp32.onnx`, `106.24 Mo`, parité PyTorch/ORT `4e-6`) :**
-  - Latence réelle mesurée sur **CPU Windows local (`onnxruntime`)** : **`469 ms` (1-vue)** / **`973 ms` (TTA-4)**.
-- **Dataset multi-centres System 1 (`data/system1_v1`) :** `6 822` images dermatoscopiques (`5 749` train / `1 073` val), **5 cohortes / 4 continents** (`HIBA` Argentine, `DERM12345` Turquie/UK, `ChileSK` Chili, `MEL-SELF` Australie, `Histopath-294` CC-0), **100 % licences commerciales (`CC-BY` / `CC-0`)**, **0 image MSKCC**.
-- **Discipline FinOps :** ensemble du cycle (Zero-Shot + QLoRA 2 époques + Option C Calibration + System 1 12 époques + Merge/GGUF `Q8_0` & `Q4_K_M` + 400 inférences `llama-server`) exécuté sur NVIDIA L4 avec extinction systématique vérifiée (`0.00 CU/hr`).
-
----
-
-## 5. Quickstart Local 100 % Offline (PC / Edge)
-
-### Installation & tests (0 Compute Unit)
+## 3. Zero-Friction Quickstart (No HTTP 503 on Clone)
 
 ```powershell
+# 1. Install package + dev & Edge Cabinet dependencies
 uv venv --python 3.12
 uv pip install --python .venv\Scripts\python.exe -e ".[dev,edge]"
+
+# 2. Run lint & all 47 unit/integration/adversarial tests
 .venv\Scripts\ruff.exe check src scripts tests app
 .venv\Scripts\pytest.exe tests -v
-```
 
-### Lancer l'application clinique offline (`FastAPI` + `ONNX System 1` + `Last-Mile Harness`)
+# 3. Download open CC-0/CC-BY System 1 ConvNeXt-Tiny ONNX weights (106 MB, optional — Demo Sandbox runs without it)
+.venv\Scripts\medgemma-dermato.exe download-system1
 
-```powershell
-# 1. (Optionnel) Démarrer System 2 MedGemma GGUF Q8_0 + mmproj FP16 en local via llama.cpp :
-llama-server -m medgemma-dermato-v1-q8_0.gguf --mmproj mmproj-medgemma-dermato-v1-f16.gguf -ngl 99 -c 4096 --port 8080
-
-# 2. Démarrer l'interface locale offline (fonctionne aussi en mode dégradé System 1 ONNX seul) :
-.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000
-# Ouvrir http://127.0.0.1:8000
+# 4. Launch 1-click supervised Edge Cabinet UI (auto-starts local llama-server Q8_0 if present, else System 1 / Sandbox)
+.venv\Scripts\medgemma-dermato.exe serve --open
+# Or via Docker:
+docker compose up --build
 ```
 
 ---
 
-## 6. Limites explicites & Gouvernance Clinique
+## 4. Explicit Clinical Limitations
 
-1. **Biais de phototype (Fitzpatrick I–IV) :** les cohortes ISIC publiques sous-représentent fortement les phototypes V–VI ; aucune généralisation n'est revendiquée sur peaux foncées sans validation dédiée.
-2. **Biais de spectre (cohorte biopsiée MSKCC) :** `100 %` des lésions bénignes de MSKCC 2020 sont des lésions difficiles déjà sélectionnées pour biopsie — ce stress test sous-estime mécaniquement l'AUROC de dépistage général (`0.91–0.98` en multi-centres) mais reflète fidèlement la limite réelle sur lésions ambiguës.
-3. **Conditionnement single-pass post-quantification :** les `logprobs` natifs continus de `llama-server` sont désormais extraits sur **`100.0 %` (`430/430`)** des cas (`ECE = 0.1676`), mais le conditionnement en une passe sur `melanocytic_pattern` *greedy* reste en retrait par rapport à la marginalisation 3-branches BF16 Option C (`91.4 %` vs `95.7 %` de sensibilité maligne sur MSKCC), maintenant volontairement le Gate Edge `Q8_0` à `BLOCK_DEPLOY` jusqu'à marginalisation multi-branches Edge ou fine-tuning `QLoRA v2` multi-centres.
-4. **Cadre réglementaire :** strictly **RUO / Hors-MDR** ; chaque inférence génère un `AuditTrail` JSON traçable (SHA-256 de l'image, versions des poids, règles déclenchées, neutralisation des formulations diagnostiques).
+1. **Skin Tone Bias (Fitzpatrick V–VI):** Public ISIC cohorts strongly under-represent darker skin phototypes; no clinical generalization is claimed without dedicated prospective validation.
+2. **Spectrum Bias (MSKCC Biopsied Cohort):** `100%` of MSKCC benign lesions are hard mimics already selected for biopsy — systematically lowering apparent AUROC vs general screening (`0.93–0.98` across HIBA/DERM12345).
+3. **Edge `Q8_0` Gate:** Pure Edge `Q8_0` (v1) remains intentionally gated at `BLOCK_DEPLOY` (`91.4% < 95.0%`), whereas BF16 Option C passes at `95.7%` malignant / `97.4%` melanoma.
+4. **Regulatory Status:** Strictly **RUO / Non-MDR** decision-support demonstrator.
 
 ---
 
-## 7. Structure du dépôt
+## 5. Repository Structure
 
 ```text
-├── app/                         # Application FastAPI 100% offline + UI 3-Zones + trace agent (index.html)
-├── configs/project.yaml         # Configuration centralisée (preflight, splits, QLoRA, seuils)
-├── docs/assets/                 # Courbes SVG (training, ROC/PR hybride, répartition 3-zones)
-├── scripts/
-│   ├── build_dataset.py         # Ingestion ISIC v2 anti-leakage (HIBA train/val, MSKCC test)
-│   ├── build_system1_dataset.py # Construction du pool multi-centres 5 cohortes (0% MSKCC)
-│   ├── train_qlora.py           # Fine-tuning QLoRA MedGemma 1.5 4B (assistant-only masking)
-│   ├── calibrate_risk.py        # Extraction exacte des log-probs par règle de chaîne + TTA
-│   ├── train_system1.py         # Entraînement ConvNeXt-Tiny 384 + export & parité ONNX
-│   ├── evaluate_fusion.py       # Late Fusion 0-fuite + benchmark latence CPU ONNX
-│   ├── evaluate_last_mile_harness.py # Benchmark 3-Zones & ablation des 6 verrous sur MSKCC
-│   ├── merge_lora.py            # Fusion LoRA → BF16 avant conversion GGUF
-│   ├── eval_gguf.py             # Évaluation non-régression GGUF via llama-server
-│   ├── benchmark_edge_q8_logprobs.py # Benchmark local RTX 4080 Q8_0 native logprobs (430 cas)
-│   └── run_adversarial_stress_test.py # Suite red-teaming 13 vecteurs (optique, sécurité, ONNX)
+├── app/                         # Offline FastAPI Cabinet App + 3-Tab UI (index.html)
+├── configs/project.yaml         # Centralized splits, preflight, QLoRA & eval config
+├── docs/
+│   ├── ADR_001_deterministic_orchestration.md  # PAA Architecture Decision Record
+│   └── assets/                  # Verified UI screenshots & SVG evaluation charts
+├── Dockerfile & docker-compose.yml # Production containerization + optional llama.cpp VLM
+├── scripts/                     # ISIC ingestion, QLoRA v1/v2, System 1 ONNX, GGUF & red-team benchmarks
 ├── src/medgemma_dermato/
-│   ├── preflight.py             # Verrou 1 : contrôle qualité pré-analytique + ROI crop
-│   ├── system1.py               # Inférence ONNX Runtime zéro-PyTorch + instabilité TTA-4
-│   ├── edge_vlm.py              # Client HTTP zéro-PyTorch llama-server + logprobs natifs
-│   ├── agent.py                 # DermoscopyTriageAgent (6 outils, routeur adaptatif, plan GP)
-│   ├── clinical_harness.py      # Last-Mile Clinical Safety Harness (6 verrous + Gate CI/CD)
-│   ├── schema.py & prompts.py   # Contrats Pydantic v2 stricts & prompts neutres RUO
-│   └── eval/                    # Eval Harness, Calibration (AUROC/ECE/Temp) & Late Fusion
-└── tests/                       # 38 tests unitaires, agent & adversariaux (pytest + GitHub Actions CI)
+│   ├── preflight.py             # Barrier 1: OpenCV pre-analytical QA + ROI crop
+│   ├── system1.py               # Zero-PyTorch ONNX Runtime + TTA-4 instability
+│   ├── explainability.py        # Single-batch ONNX occlusion saliency heatmap
+│   ├── edge_vlm.py              # llama-server client with 3-branch chain-rule logprobs
+│   ├── agent.py                 # ClinicalTriageOrchestrator (6 deterministic steps)
+│   ├── clinical_harness.py      # 6-barrier Last-Mile Safety Harness + DeploymentGate
+│   ├── db_model_bridge.py       # Bidirectional SQLite <-> Model SHA-256 Format Validator
+│   ├── storage.py & pdf_report.py # Local SQLite longitudinal store + 1-page referral PDF
+│   └── launcher.py              # `medgemma-dermato` CLI (`serve` & `download-system1`)
+└── tests/                       # 47 unit, bridge, API, PDF, XAI & adversarial tests (CI green)
 ```
