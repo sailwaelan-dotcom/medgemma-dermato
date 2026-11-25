@@ -27,8 +27,10 @@ from medgemma_dermato.clinical_harness import (
     HarnessPolicy,
     LastMileAssessment,
     LastMileClinicalHarness,
+    SafetyRuleTrigger,
 )
 from medgemma_dermato.config import PreflightConfig
+from medgemma_dermato.db_model_bridge import LongitudinalPriorDTO
 from medgemma_dermato.eval.calibration import RiskScoreCase, apply_temperature
 from medgemma_dermato.preflight import crop_dermoscopic_roi, evaluate_image_quality
 from medgemma_dermato.schema import PreflightResult
@@ -272,6 +274,7 @@ class DermoscopyTriageAgent:
         use_tta4: bool = True,
         image_sha256: str | None = None,
         case_id: str | None = None,
+        prior_context: LongitudinalPriorDTO | None = None,
     ) -> AgentRunResult:
         """Execute the full adaptive 6-tool agent pipeline on one dermoscopic image."""
         t_all = time.perf_counter()
@@ -500,6 +503,38 @@ class DermoscopyTriageAgent:
                 f"[FAST-PATH AGENT — Accord haute confiance System 1 (< {fp_thr:.1%}), "
                 "VLM 4B économisé] " + assessment.safe_referral_summary_fr
             )
+        harness_metrics: dict[str, Any] = {
+            "zone": assessment.triage_zone,
+            "contradiction_caught": assessment.audit.text_contradiction_caught,
+        }
+        if prior_context is not None:
+            delta_risk = round(
+                assessment.calibrated_risk_score - prior_context.prior_calibrated_risk, 4
+            )
+            harness_metrics["prior_case_id"] = prior_context.prior_case_id
+            harness_metrics["delta_risk"] = delta_risk
+            if (
+                delta_risk >= 0.10
+                or prior_context.prior_triage_zone == "RED_PRIORITY_DERMATOLOGY"
+            ):
+                reason = (
+                    f"Suivi DB->Modèle ({prior_context.prior_case_id}, "
+                    f"J+{prior_context.days_since_prior:.0f}j) : "
+                    f"Δ risque={delta_risk:+.1%}, "
+                    f"zone antérieure={prior_context.prior_triage_zone}."
+                )
+                assessment.triggered_rules.append(
+                    SafetyRuleTrigger(
+                        code="LONGITUDINAL_BRIDGE_EVOLUTION",
+                        severity="block_green",
+                        detail_fr=reason,
+                    )
+                )
+                assessment.audit.triggered_rules.append("LONGITUDINAL_BRIDGE_EVOLUTION")
+                if assessment.triage_zone == "GREEN_LOW_RISK_SURVEILLANCE":
+                    assessment.triage_zone = "AMBER_UNCERTAIN_TELEEXPERTISE"
+                harness_metrics["zone"] = assessment.triage_zone
+
         dt_h = round((time.perf_counter() - t0) * 1000.0, 1)
         trace.append(
             AgentStepTrace(
@@ -512,10 +547,7 @@ class DermoscopyTriageAgent:
                     f"risque={assessment.calibrated_risk_score:.1%}, "
                     f"règles={len(assessment.triggered_rules)}."
                 ),
-                metrics={
-                    "zone": assessment.triage_zone,
-                    "contradiction_caught": assessment.audit.text_contradiction_caught,
-                },
+                metrics=harness_metrics,
             )
         )
 

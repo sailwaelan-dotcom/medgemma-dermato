@@ -99,6 +99,7 @@
     <div class="status-pills">
       <span id="pill-s1" class="pill">System 1 ONNX: ...</span>
       <span id="pill-s2" class="pill">System 2 llama.cpp: ...</span>
+      <span class="pill ok">Pont Validateur DB↔Modèle</span>
       <span class="pill ok">100% Offline SQLite + PDF</span>
     </div>
   </header>
@@ -140,6 +141,13 @@
         </div>
         <div style="margin-top:10px">
           <label class="field">Localisation anatomique<input id="site" type="text" placeholder="ex. Dos, membre supérieur, visage..." /></label>
+        </div>
+        <div style="margin-top:10px">
+          <label class="field">Suivi d'un dossier existant (Pont Validateur DB → Modèle)
+            <select id="priorCaseId">
+              <option value="">Nouveau dossier (aucun antécédent lié)</option>
+            </select>
+          </label>
         </div>
 
         <div class="checks">
@@ -394,6 +402,8 @@
         if (sex) fd.append("sex", sex);
         const site = document.getElementById("site").value;
         if (site) fd.append("anatom_site", site);
+        const priorId = document.getElementById("priorCaseId").value;
+        if (priorId) fd.append("prior_case_id", priorId);
         fd.append("lesion_evolving", document.getElementById("evolving").checked);
         fd.append("lesion_bleeding_or_ulcerated", document.getElementById("bleeding").checked);
         fd.append("new_lesion_after_50", document.getElementById("new50").checked);
@@ -406,6 +416,7 @@
         if (!resp.ok) throw new Error(await resp.text());
         const data = await resp.json();
         renderCasePayload(data);
+        refreshPriorSelect();
       } catch (err) {
         alert("Erreur analyse : " + err.message);
       } finally {
@@ -493,6 +504,22 @@
       await fetch(`/api/cases/${cid}`, { method: "DELETE" });
       loadHistory();
     };
+
+    async function refreshPriorSelect() {
+      try {
+        const r = await fetch("/api/cases?limit=100");
+        if (!r.ok) return;
+        const data = await r.json();
+        const sel = document.getElementById("priorCaseId");
+        const cur = sel.value;
+        sel.innerHTML = `<option value="">Nouveau dossier (aucun antécédent lié)</option>` +
+          (data.cases || []).map(c =>
+            `<option value="${c.case_id}">${c.case_id} | ${c.patient_ref || "—"} | ${(c.calibrated_risk*100).toFixed(1)}%</option>`
+          ).join("");
+        if (cur) sel.value = cur;
+      } catch (e) {}
+    }
+    refreshPriorSelect();
 
     async function populateCompareSelects() {
       const r = await fetch("/api/cases?limit=200");

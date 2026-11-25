@@ -18,6 +18,10 @@ from medgemma_dermato.clinical_harness import (
     LastMileClinicalHarness,
 )
 from medgemma_dermato.config import load_config
+from medgemma_dermato.db_model_bridge import (
+    StorageFormatIntegrityError,
+    build_validated_model_inputs,
+)
 from medgemma_dermato.edge_vlm import EdgeVLMClient
 from medgemma_dermato.explainability import compute_occlusion_heatmap, encode_pil_png_b64
 from medgemma_dermato.pdf_report import render_referral_pdf
@@ -117,6 +121,7 @@ def create_app(
         use_tta4: bool = Form(default=True),
         adaptive_routing: bool = Form(default=False),
         include_heatmap: bool = Form(default=True),
+        prior_case_id: str | None = Form(default=None),
     ) -> dict[str, Any]:
         raw_bytes = await image.read()
         if not raw_bytes:
@@ -134,11 +139,31 @@ def create_app(
                 detail="System 1 ONNX model is not loaded on disk.",
             )
 
+        prior_record: dict[str, Any] | None = None
+        if prior_case_id and prior_case_id.strip():
+            try:
+                prior_record = store.get_case(prior_case_id.strip())
+            except StorageFormatIntegrityError as exc:
+                raise HTTPException(
+                    status_code=422, detail=f"Bridge DB integrity error: {exc}"
+                ) from exc
+            if prior_record is None:
+                raise HTTPException(
+                    status_code=404, detail=f"Prior case {prior_case_id} not found in SQLite."
+                )
+
+        validated_meta, prior_dto = build_validated_model_inputs(
+            prior_case=prior_record,
+            current_age=age_years,
+            current_sex=sex,
+            current_site=anatom_site,
+        )
+
         agent.agent_cfg.adaptive_routing_enabled = adaptive_routing
         clinical_ctx = ClinicalContext(
-            age_years=age_years,
-            sex=sex or None,
-            anatom_site=anatom_site or None,
+            age_years=validated_meta.age_approx,
+            sex=validated_meta.sex,
+            anatom_site=validated_meta.anatom_site,
             lesion_evolving=lesion_evolving,
             lesion_bleeding_or_ulcerated=lesion_bleeding_or_ulcerated,
             new_lesion_after_50=new_lesion_after_50,
@@ -149,6 +174,7 @@ def create_app(
             clinical_context=clinical_ctx,
             use_tta4=use_tta4,
             image_sha256=image_sha,
+            prior_context=prior_dto,
         )
 
         original_b64 = encode_pil_png_b64(pil_img, max_side=384)
@@ -168,15 +194,19 @@ def create_app(
 
         stored = store.save_case(
             run_res=run_res,
-            patient_ref=patient_ref or None,
-            lesion_label=lesion_label or None,
-            age_years=age_years,
-            sex=sex or None,
-            anatom_site=anatom_site or None,
+            patient_ref=patient_ref or (prior_record.get("patient_ref") if prior_record else None),
+            lesion_label=(
+                lesion_label or (prior_record.get("lesion_label") if prior_record else None)
+            ),
+            age_years=validated_meta.age_approx,
+            sex=validated_meta.sex,
+            anatom_site=validated_meta.anatom_site,
             original_b64=original_b64,
             heatmap_b64=heatmap_b64,
             roi_b64=roi_b64,
         )
+        stored["bridge_validated"] = True
+        stored["prior_case_id"] = prior_dto.prior_case_id if prior_dto is not None else None
 
         sys2_status = (
             "connected_llama_cpp"
@@ -219,7 +249,12 @@ def create_app(
 
     @app.get("/api/cases/{case_id}")
     def get_case(case_id: str) -> dict[str, Any]:
-        rec = store.get_case(case_id)
+        try:
+            rec = store.get_case(case_id)
+        except StorageFormatIntegrityError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"Bridge DB integrity error: {exc}"
+            ) from exc
         if rec is None:
             raise HTTPException(status_code=404, detail=f"Case {case_id} not found.")
         return rec

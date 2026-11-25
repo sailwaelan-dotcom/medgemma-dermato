@@ -1,6 +1,5 @@
 """Local offline SQLite case history and longitudinal lesion comparator (Critère E)."""
 
-import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +8,10 @@ from typing import Any
 from pydantic import BaseModel
 
 from medgemma_dermato.agent import AgentRunResult
+from medgemma_dermato.db_model_bridge import (
+    hydrate_and_validate_from_storage,
+    validate_for_storage,
+)
 
 ZONE_ORDER: dict[str, int] = {
     "GREEN_LOW_RISK_SURVEILLANCE": 0,
@@ -116,6 +119,7 @@ class LocalCaseStore:
             "action_plan": run_res.action_plan.model_dump(),
             "trace": [s.model_dump() for s in run_res.trace],
         }
+        envelope = validate_for_storage(payload)
         with self._connect() as conn:
             conn.execute(
                 """
@@ -128,16 +132,16 @@ class LocalCaseStore:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    run_res.case_id,
-                    created_utc,
-                    patient_ref,
-                    lesion_label,
+                    envelope.case_id,
+                    envelope.created_utc,
+                    envelope.payload.get("patient_ref"),
+                    envelope.payload.get("lesion_label"),
                     age_years,
                     sex,
-                    anatom_site,
-                    a.triage_zone,
-                    run_res.routing_decision,
-                    float(a.calibrated_risk_score),
+                    envelope.payload.get("anatom_site"),
+                    envelope.triage_zone,
+                    envelope.routing_decision,
+                    envelope.calibrated_risk_score,
                     float(a.p_sys1_cal),
                     float(a.p_medgemma_cal),
                     a.sys1_top_entity,
@@ -147,7 +151,7 @@ class LocalCaseStore:
                     original_b64,
                     heatmap_b64,
                     roi_b64,
-                    json.dumps(payload, ensure_ascii=False),
+                    envelope.model_dump_json(),
                 ),
             )
             conn.commit()
@@ -192,13 +196,13 @@ class LocalCaseStore:
         return [dict(r) for r in rows]
 
     def get_case(self, case_id: str) -> dict[str, Any] | None:
-        """Retrieve a full case record including deserialized payload."""
+        """Retrieve a full case record and verify its SHA-256 storage integrity."""
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
         if row is None:
             return None
         d = dict(row)
-        payload = json.loads(d.pop("payload_json"))
+        payload = hydrate_and_validate_from_storage(d.pop("payload_json"))
         payload.update(
             {
                 "created_utc": d["created_utc"],
