@@ -1,11 +1,8 @@
-"""100% Offline Edge FastAPI application wired to the Last-Mile Clinical Safety Harness."""
+"""100% Offline Edge FastAPI app powered by DermoscopyTriageAgent + Last-Mile Safety Harness."""
 
 import hashlib
 import io
 import os
-import tempfile
-import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +10,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from PIL import Image, UnidentifiedImageError
 
+from medgemma_dermato.agent import AgentConfig, DermoscopyTriageAgent
 from medgemma_dermato.clinical_harness import (
     RUO_DISCLAIMER_FR,
     ClinicalContext,
@@ -21,8 +19,7 @@ from medgemma_dermato.clinical_harness import (
 )
 from medgemma_dermato.config import load_config
 from medgemma_dermato.edge_vlm import EdgeVLMClient
-from medgemma_dermato.preflight import evaluate_image_quality
-from medgemma_dermato.system1 import OnnxSystem1Classifier, System1Prediction
+from medgemma_dermato.system1 import OnnxSystem1Classifier
 
 STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
 
@@ -34,12 +31,15 @@ def create_app(
     config_path: Path = Path("configs/project.yaml"),
     system1_override: Any | None = None,
     vlm_override: Any | None = None,
+    agent_cfg: AgentConfig | None = None,
 ) -> FastAPI:
-    """Create the offline Edge FastAPI app with optional test dependency injection."""
+    """Create the offline Edge FastAPI app backed by DermoscopyTriageAgent."""
     app = FastAPI(
-        title="MedGemma Dermato — Edge Clinical Safety Harness (RUO)",
-        version="1.0.0",
-        description="Offline pre-analytical QA + System 1 ONNX + MedGemma GGUF + 3-Zone Harness.",
+        title="MedGemma Dermato — Adaptive Clinical Triage Agent & Safety Harness (RUO)",
+        version="1.1.0",
+        description=(
+            "Offline preflight QA + System 1 ONNX + Adaptive MedGemma GGUF + 6-Barrier Harness."
+        ),
     )
 
     cfg = load_config(config_path) if config_path.exists() else load_config()
@@ -58,11 +58,22 @@ def create_app(
     vlm_client = vlm_override if vlm_override is not None else EdgeVLMClient(base_url=vlm_url)
     policy = HarnessPolicy(strict_preflight_block=False)
     harness = LastMileClinicalHarness(policy=policy)
+    agent = (
+        DermoscopyTriageAgent(
+            system1=sys1_clf,
+            vlm_client=vlm_client,
+            harness=harness,
+            preflight_cfg=cfg.preflight,
+            agent_cfg=agent_cfg or AgentConfig(),
+        )
+        if sys1_clf is not None
+        else None
+    )
 
     @app.get("/", response_class=HTMLResponse)
     def serve_ui() -> str:
         if not STATIC_INDEX.exists():
-            return "<h1>MedGemma Dermato Edge API</h1><p>UI file missing.</p>"
+            return "<h1>MedGemma Dermato Edge Agent API</h1><p>UI file missing.</p>"
         return STATIC_INDEX.read_text(encoding="utf-8")
 
     @app.get("/api/health")
@@ -71,6 +82,7 @@ def create_app(
         return {
             "status": "ok",
             "offline_edge": True,
+            "agent_enabled": agent is not None,
             "system1_onnx_ready": sys1_clf is not None,
             "system1_model": str(model_path) if sys1_clf is not None else None,
             "system2_llama_server_ready": sys2_ok,
@@ -90,8 +102,8 @@ def create_app(
         new_lesion_after_50: bool = Form(default=False),
         personal_or_family_melanoma_history: bool = Form(default=False),
         use_tta4: bool = Form(default=True),
+        adaptive_routing: bool = Form(default=False),
     ) -> dict[str, Any]:
-        t_start = time.perf_counter()
         raw_bytes = await image.read()
         if not raw_bytes:
             raise HTTPException(status_code=400, detail="Empty image upload.")
@@ -102,24 +114,13 @@ def create_app(
         except (UnidentifiedImageError, OSError) as exc:
             raise HTTPException(status_code=400, detail=f"Invalid image file: {exc}") from exc
 
-        # Verrou 1: Pre-analytical image quality check
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            pil_img.save(tmp, format="JPEG", quality=95)
-            tmp_path = Path(tmp.name)
-        try:
-            preflight = evaluate_image_quality(tmp_path, cfg.preflight)
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-        # System 1: Edge ONNX ConvNeXt-Tiny (< 1s CPU, zero PyTorch)
-        if sys1_clf is None:
+        if agent is None:
             raise HTTPException(
                 status_code=503,
                 detail="System 1 ONNX model is not loaded on disk.",
             )
-        s1_pred: System1Prediction = sys1_clf.predict_image(pil_img, tta=use_tta4)
 
-        # System 2: Local llama-server MedGemma GGUF (optional graceful degraded mode)
+        agent.agent_cfg.adaptive_routing_enabled = adaptive_routing
         clinical_ctx = ClinicalContext(
             age_years=age_years,
             sex=sex or None,
@@ -129,66 +130,36 @@ def create_app(
             new_lesion_after_50=new_lesion_after_50,
             personal_or_family_melanoma_history=personal_or_family_melanoma_history,
         )
-        vlm_ctx = {
-            "age_approx": age_years,
-            "sex": sex or None,
-            "anatom_site": anatom_site or None,
-        }
-
-        sys2_status = "offline_degraded_s1_only"
-        sys2_latency_ms: float | None = None
-        sys2_logprobs_used = False
-        p_med_raw = s1_pred.p_risk_raw
-        p_mel_med = s1_pred.p_melanoma
-        med_top_entity: str | None = None
-        med_parsed = None
-        med_summary: str | None = None
-
-        if vlm_client is not None and vlm_client.healthcheck():
-            vlm_res = vlm_client.analyze_image(pil_img, clinical_context=vlm_ctx)
-            sys2_status = "connected_llama_cpp"
-            sys2_latency_ms = vlm_res.latency_ms
-            sys2_logprobs_used = vlm_res.logprobs_used
-            p_med_raw = vlm_res.p_risk_estimate
-            p_mel_med = vlm_res.p_melanoma_estimate
-            med_parsed = vlm_res.parsed
-            if vlm_res.parsed is not None:
-                med_top_entity = vlm_res.parsed.entity_category
-                med_summary = vlm_res.parsed.summary_for_referral_fr
-
-        case_id = f"EDGE-{uuid.uuid4().hex[:8].upper()}"
-        assessment = harness.evaluate_case(
-            case_id=case_id,
-            p_sys1_raw=s1_pred.p_risk_raw,
-            p_medgemma_raw=p_med_raw,
-            sys1_top_entity=s1_pred.predicted_entity,
-            p_melanoma_sys1=s1_pred.p_melanoma,
-            p_melanoma_medgemma=p_mel_med,
-            medgemma_top_entity=med_top_entity,
-            medgemma_assessment=med_parsed,
-            medgemma_summary_fr=med_summary,
-            preflight=preflight,
-            tta_risk_std=s1_pred.tta_risk_std,
+        run_res = agent.run(
+            image=pil_img,
             clinical_context=clinical_ctx,
+            use_tta4=use_tta4,
             image_sha256=image_sha,
         )
 
-        if sys2_status != "connected_llama_cpp":
-            assessment.safe_referral_summary_fr = (
-                "[MODE DEGRADE SYSTEM 1 EDGE SEUL — llama-server MedGemma hors ligne] "
-                + assessment.safe_referral_summary_fr
+        sys2_status = (
+            "connected_llama_cpp"
+            if run_res.routing_decision == "HYBRID_FULL_S1_PLUS_S2"
+            else (
+                "fast_path_skipped"
+                if run_res.routing_decision == "FAST_PATH_SYS1_ONLY"
+                else "offline_degraded_s1_only"
             )
-
-        total_ms = round((time.perf_counter() - t_start) * 1000.0, 1)
+        )
         return {
-            "case_id": case_id,
+            "case_id": run_res.case_id,
+            "routing_decision": run_res.routing_decision,
+            "vlm_invoked": run_res.vlm_invoked,
+            "roi_crop_applied": run_res.roi_crop_applied,
             "system2_status": sys2_status,
-            "system2_logprobs_used": sys2_logprobs_used,
-            "system2_latency_ms": sys2_latency_ms,
-            "total_latency_ms": total_ms,
-            "preflight": preflight.model_dump(),
-            "system1": s1_pred.model_dump(),
-            "assessment": assessment.model_dump(),
+            "system2_logprobs_used": run_res.system2_logprobs_used,
+            "system2_latency_ms": run_res.system2_latency_ms,
+            "total_latency_ms": run_res.total_latency_ms,
+            "preflight": run_res.preflight.model_dump(),
+            "system1": run_res.system1.model_dump(),
+            "assessment": run_res.assessment.model_dump(),
+            "action_plan": run_res.action_plan.model_dump(),
+            "trace": [step.model_dump() for step in run_res.trace],
         }
 
     return app

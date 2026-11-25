@@ -46,7 +46,11 @@
     .metric .v { font-size: 18px; font-weight: 700; margin-top: 2px; }
     .rules { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
     .rule-tag { font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: #e2e8f0; color: #1e293b; font-family: ui-monospace, monospace; }
-    .summary-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; }
+    .trace-list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+    .trace-item { font-size: 12px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; background: #f8fafc; display: flex; justify-content: space-between; gap: 8px; }
+    .trace-item .tname { font-family: ui-monospace, monospace; font-weight: 600; color: #0f172a; }
+    .q-list { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: #334155; }
+    .summary-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
     .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     .muted { color: var(--muted); font-size: 12.5px; }
   </style>
@@ -94,14 +98,15 @@
         <label><input id="new50" type="checkbox" /> Nouvelle lésion atypique après 50 ans</label>
         <label><input id="history" type="checkbox" /> Antécédent personnel/familial de mélanome</label>
         <label><input id="tta4" type="checkbox" checked /> Activer TTA-4 rotations + contrôle d'instabilité</label>
+        <label><input id="adaptive" type="checkbox" /> Mode Éco / Fast-Path S1 (&lt; 6.7 % — économise ~35 % d'appels VLM en dépistage)</label>
       </div>
 
       <button id="runBtn" class="primary" disabled>Analyser localement (Offline)</button>
     </section>
 
     <section class="card">
-      <h2>2. Sortie 3-Zones &amp; Fiche d'adressage sécurisée</h2>
-      <div id="placeholder" class="muted">Chargez une image dermatoscopique puis lancez l'analyse. Les 6 verrous du harness s'exécutent localement sans envoi cloud.</div>
+      <h2>2. Sortie Agent 3-Zones &amp; Fiche d'adressage sécurisée</h2>
+      <div id="placeholder" class="muted">Chargez une image dermatoscopique puis lancez l'analyse. L'agent orchestre les 6 outils et verrous localement sans envoi cloud.</div>
       <div id="resultPane" style="display:none">
         <div id="zoneBox" class="zone-box"></div>
         <div class="metrics-row">
@@ -112,7 +117,11 @@
         <div class="muted" id="metaLine"></div>
         <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Règles de sécurité déclenchées :</div>
         <div id="rulesBox" class="rules"></div>
-        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Synthèse d'adressage (sécurisée Hors-MDR) :</div>
+        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Trace d'exécution Agent (6 outils) :</div>
+        <ul id="traceList" class="trace-list"></ul>
+        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Questions d'anamnèse prioritaires (médecin généraliste) :</div>
+        <ul id="qList" class="q-list"></ul>
+        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Fiche d'adressage structurée (sécurisée Hors-MDR) :</div>
         <div id="summaryBox" class="summary-box"></div>
         <div class="actions">
           <button id="copyBtn" class="secondary">Copier la fiche médecin</button>
@@ -181,6 +190,7 @@
         fd.append("new_lesion_after_50", document.getElementById("new50").checked);
         fd.append("personal_or_family_melanoma_history", document.getElementById("history").checked);
         fd.append("use_tta4", document.getElementById("tta4").checked);
+        fd.append("adaptive_routing", document.getElementById("adaptive").checked);
 
         const resp = await fetch("/api/analyze", { method: "POST", body: fd });
         if (!resp.ok) throw new Error(await resp.text());
@@ -193,15 +203,17 @@
         const zb = document.getElementById("zoneBox");
         zb.className = "zone-box zone-" + a.triage_zone;
         zb.innerHTML = `<strong>${ZONE_LABELS[a.triage_zone] || a.triage_zone}</strong>`
+          + `<div style="margin-top:4px;font-size:12px">Routage Agent : <code>${data.routing_decision}</code></div>`
           + (a.retake_recommended ? `<div style="margin-top:6px;font-size:12.5px">Reprise photo conseillée : ${data.preflight.recommendation_fr}</div>` : "");
 
         const s2Online = data.system2_status === "connected_llama_cpp";
+        const s2Label = s2Online
+          ? (a.p_medgemma_cal * 100).toFixed(1) + "%"
+          : (data.system2_status === "fast_path_skipped" ? "Fast-Path (S1)" : "Hors ligne");
         document.getElementById("mFused").textContent = (a.calibrated_risk_score * 100).toFixed(1) + "%";
         document.getElementById("mS1").textContent = (a.p_sys1_cal * 100).toFixed(1) + "%";
-        document.getElementById("mS2").textContent = s2Online
-          ? (a.p_medgemma_cal * 100).toFixed(1) + "%"
-          : "Hors ligne";
-        const disStr = s2Online ? (a.disagreement * 100).toFixed(1) + "%" : "N/A (mode dégradé)";
+        document.getElementById("mS2").textContent = s2Label;
+        const disStr = s2Online ? (a.disagreement * 100).toFixed(1) + "%" : "N/A";
         document.getElementById("metaLine").textContent =
           `Dossier ${data.case_id} · Entité S1: ${a.sys1_top_entity} · Écart S1/S2: ${disStr} · `
           + `Instabilité TTA: ${(a.tta_risk_std ?? 0).toFixed(3)} · Latence totale: ${data.total_latency_ms} ms`;
@@ -211,7 +223,20 @@
           ? a.triggered_rules.map(r => `<span class="rule-tag" title="${r.detail_fr}">${r.code}</span>`).join("")
           : `<span class="rule-tag">AUCUNE_ALERTE_HARNESS</span>`;
 
-        document.getElementById("summaryBox").textContent = a.safe_referral_summary_fr + "\n\n" + a.ruo_disclaimer_fr;
+        const tl = document.getElementById("traceList");
+        tl.innerHTML = (data.trace || []).map(st =>
+          `<li class="trace-item"><span><span class="tname">${st.step_index}. ${st.tool_name}</span> — ${st.summary_fr}</span><span class="muted">${st.duration_ms} ms</span></li>`
+        ).join("");
+
+        const ql = document.getElementById("qList");
+        const qs = (data.action_plan && data.action_plan.missing_anamnesis_questions) || [];
+        ql.innerHTML = qs.length
+          ? qs.map(q => `<li><strong>${q.question_fr}</strong> <span class="muted">(${q.clinical_rationale_fr})</span></li>`).join("")
+          : `<li>Anamnèse de base renseignée.</li>`;
+
+        document.getElementById("summaryBox").textContent =
+          (data.action_plan && data.action_plan.gp_referral_letter_fr)
+          || (a.safe_referral_summary_fr + "\n\n" + a.ruo_disclaimer_fr);
       } catch (err) {
         alert("Erreur analyse : " + err.message);
       } finally {
