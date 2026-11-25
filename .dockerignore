@@ -1,0 +1,15 @@
+.venv/
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data/
+outputs/
+checkpoints/
+tools/
+*.gguf
+*.onnx
+*.safetensors
+*.pt
+*.db

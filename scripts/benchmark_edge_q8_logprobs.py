@@ -62,6 +62,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("outputs/edge_q8_logprobs"),
     )
+    parser.add_argument(
+        "--marginalize-branches",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use 3-branch melanocytic_pattern chain-rule marginalization via KV-cached probes.",
+    )
     parser.add_argument("--limit", type=int, default=None)
     return parser.parse_args()
 
@@ -152,6 +158,7 @@ def _score_split(
             row = {
                 "isic_id": rec.isic_id,
                 "logprobs_used": res.logprobs_used,
+                "branches_probed": res.branches_probed,
                 "json_valid": res.parsed is not None and res.parse_error is None,
                 "raw_text": res.raw_text,
                 "parsed": res.parsed.model_dump() if res.parsed is not None else None,
@@ -211,6 +218,7 @@ def main() -> None:
         timeout=180.0,
         request_logprobs=True,
         top_logprobs=20,
+        marginalize_branches=args.marginalize_branches,
     ) as vlm:
         if not vlm.healthcheck():
             raise RuntimeError(f"llama-server unreachable at {args.server_url}")

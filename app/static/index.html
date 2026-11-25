@@ -3,48 +3,69 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MedGemma Dermato — Edge Clinical Safety Harness (RUO)</title>
+  <title>MedGemma Dermato — Poste Clinique Edge Offline (RUO)</title>
   <style>
     :root {
-      --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0; --text: #0f172a; --muted: #475569;
+      --bg: #f1f5f9; --card: #ffffff; --border: #cbd5e1; --text: #0f172a; --muted: #475569;
       --green: #16a34a; --green-bg: #dcfce7;
       --amber: #d97706; --amber-bg: #fef3c7;
       --red: #dc2626; --red-bg: #fee2e2;
-      --blue: #2563eb;
+      --blue: #2563eb; --blue-bg: #eff6ff;
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
-    header { background: #0f172a; color: #f8fafc; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
-    header h1 { margin: 0; font-size: 18px; }
-    .banner { background: #fef3c7; color: #92400e; padding: 10px 24px; font-size: 13px; border-bottom: 1px solid #fde68a; font-weight: 500; }
+    header { background: #0f172a; color: #f8fafc; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    header h1 { margin: 0; font-size: 18px; letter-spacing: -.01em; }
+    .banner { background: #fef3c7; color: #92400e; padding: 9px 24px; font-size: 12.5px; border-bottom: 1px solid #fde68a; font-weight: 600; }
     .status-pills { display: flex; gap: 8px; flex-wrap: wrap; }
     .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
     .pill.ok { background: #14532d; color: #bbf7d0; border-color: #166534; }
     .pill.warn { background: #78350f; color: #fde68a; border-color: #92400e; }
-    main { max-width: 1120px; margin: 24px auto; padding: 0 20px 40px; display: grid; grid-template-columns: 1fr 1.25fr; gap: 20px; }
-    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+
+    .tabs-bar { max-width: 1180px; margin: 18px auto 0; padding: 0 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab-btn { padding: 9px 16px; border: 1px solid var(--border); border-bottom: none; border-radius: 10px 10px 0 0; background: #e2e8f0; color: #334155; font-weight: 600; font-size: 13.5px; cursor: pointer; }
+    .tab-btn.active { background: var(--card); color: var(--blue); border-color: var(--border); }
+
+    .tab-panel { max-width: 1180px; margin: 0 auto 40px; padding: 0 20px; display: none; }
+    .tab-panel.active { display: block; }
+
+    .grid-main { display: grid; grid-template-columns: 1fr 1.3fr; gap: 20px; padding-top: 16px; }
+    @media (max-width: 900px) { .grid-main { grid-template-columns: 1fr; } }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
     .card h2 { margin: 0 0 14px; font-size: 15px; color: var(--text); }
-    .dropzone { border: 2px dashed #94a3b8; border-radius: 10px; padding: 24px; text-align: center; cursor: pointer; background: #f8fafc; transition: border-color .15s; }
+    .dropzone { border: 2px dashed #94a3b8; border-radius: 10px; padding: 22px; text-align: center; cursor: pointer; background: #f8fafc; transition: border-color .15s; }
     .dropzone:hover { border-color: var(--blue); }
-    #preview { max-width: 100%; max-height: 220px; border-radius: 8px; margin-top: 12px; display: none; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    #preview { max-width: 100%; max-height: 210px; border-radius: 8px; margin-top: 12px; display: none; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
     label.field { display: flex; flex-direction: column; font-size: 12.5px; color: var(--muted); gap: 4px; }
-    input[type="number"], select, input[type="text"] { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13.5px; }
-    .checks { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+    input[type="number"], select, input[type="text"], textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13.5px; font-family: inherit; }
+    textarea { width: 100%; min-height: 68px; resize: vertical; }
+    .checks { margin-top: 12px; display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
     .checks label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-    button.primary { margin-top: 16px; width: 100%; padding: 12px; border: none; border-radius: 9px; background: var(--blue); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
+    button.primary { margin-top: 14px; width: 100%; padding: 12px; border: none; border-radius: 9px; background: var(--blue); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
     button.primary:disabled { opacity: .6; cursor: not-allowed; }
-    button.secondary { padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer; font-size: 12.5px; font-weight: 500; }
-    .zone-box { border-radius: 10px; padding: 16px; margin-bottom: 16px; border: 1px solid transparent; }
+    button.secondary { padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--text); }
+    button.secondary:hover { background: #f8fafc; }
+    button.danger { padding: 6px 10px; border: 1px solid #fecaca; border-radius: 7px; background: #fef2f2; color: #b91c1c; cursor: pointer; font-size: 12px; font-weight: 600; }
+
+    .zone-box { border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; border: 1px solid transparent; }
     .zone-GREEN_LOW_RISK_SURVEILLANCE { background: var(--green-bg); border-color: #86efac; color: #14532d; }
     .zone-AMBER_UNCERTAIN_TELEEXPERTISE { background: var(--amber-bg); border-color: #fcd34d; color: #78350f; }
     .zone-RED_PRIORITY_DERMATOLOGY { background: var(--red-bg); border-color: #fca5a5; color: #7f1d1d; }
+
     .metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
     .metric { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
     .metric .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
     .metric .v { font-size: 18px; font-weight: 700; margin-top: 2px; }
-    .rules { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+
+    .visual-box { margin: 12px 0; border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: #f8fafc; }
+    .visual-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+    .vis-btn { padding: 5px 10px; border: 1px solid var(--border); border-radius: 7px; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .vis-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+    #visualImg { max-width: 100%; max-height: 260px; border-radius: 8px; display: block; margin: 0 auto; }
+
+    .rules { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
     .rule-tag { font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: #e2e8f0; color: #1e293b; font-family: ui-monospace, monospace; }
     .trace-list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
     .trace-item { font-size: 12px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; background: #f8fafc; display: flex; justify-content: space-between; gap: 8px; }
@@ -53,87 +74,195 @@
     .summary-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
     .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     .muted { color: var(--muted); font-size: 12.5px; }
+
+    .history-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+    .case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; }
+    .case-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: #fff; display: flex; flex-direction: column; gap: 8px; }
+    .case-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .case-thumbs { display: flex; gap: 8px; }
+    .case-thumbs img { width: 88px; height: 88px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
+    .badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; }
+    .badge-GREEN_LOW_RISK_SURVEILLANCE { background: var(--green-bg); color: #14532d; }
+    .badge-AMBER_UNCERTAIN_TELEEXPERTISE { background: var(--amber-bg); color: #78350f; }
+    .badge-RED_PRIORITY_DERMATOLOGY { background: var(--red-bg); color: #7f1d1d; }
+
+    .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+    @media (max-width: 780px) { .cmp-grid { grid-template-columns: 1fr; } }
+    .alert-box { padding: 12px 16px; border-radius: 10px; margin-top: 14px; font-weight: 600; font-size: 13.5px; }
+    .alert-danger { background: var(--red-bg); color: #7f1d1d; border: 1px solid #fca5a5; }
+    .alert-ok { background: var(--green-bg); color: #14532d; border: 1px solid #86efac; }
   </style>
 </head>
 <body>
   <header>
-    <h1>MedGemma Dermato — Edge Clinical Safety Harness</h1>
+    <h1>MedGemma Dermato — Poste Clinique Edge Offline</h1>
     <div class="status-pills">
       <span id="pill-s1" class="pill">System 1 ONNX: ...</span>
       <span id="pill-s2" class="pill">System 2 llama.cpp: ...</span>
-      <span class="pill ok">100% Offline Edge</span>
+      <span class="pill ok">100% Offline SQLite + PDF</span>
     </div>
   </header>
   <div class="banner">
-    HORS-MDR / RESEARCH USE ONLY (RUO) — Outil de pré-triage et qualité pré-analytique. Ne constitue jamais un diagnostic médical autonome.
+    HORS-MDR / RESEARCH USE ONLY (RUO) — Outil local de pré-triage calibré, explicabilité et suivi évolutif. Ne constitue jamais un diagnostic médical autonome.
   </div>
 
-  <main>
-    <section class="card">
-      <h2>1. Cliché dermatoscopique &amp; contexte clinique</h2>
-      <div class="dropzone" id="dropzone">
-        <input id="fileInput" type="file" accept="image/*" style="display:none" />
-        <div>Cliquer ou glisser une image dermatoscopique (.jpg / .png)</div>
-        <img id="preview" alt="Aperçu lésion" />
+  <div class="tabs-bar">
+    <button class="tab-btn active" data-tab="tab-analyze">1. Analyse &amp; Explicabilité</button>
+    <button class="tab-btn" data-tab="tab-history" id="btnTabHistory">2. Historique Local (SQLite)</button>
+    <button class="tab-btn" data-tab="tab-compare" id="btnTabCompare">3. Suivi Longitudinal (Critère E)</button>
+  </div>
+
+  <!-- TAB 1: ANALYZE -->
+  <section id="tab-analyze" class="tab-panel active">
+    <div class="grid-main">
+      <div class="card">
+        <h2>1. Cliché dermatoscopique &amp; dossier patient</h2>
+        <div class="dropzone" id="dropzone">
+          <input id="fileInput" type="file" accept="image/*" style="display:none" />
+          <div>Cliquer ou glisser une image dermatoscopique (.jpg / .png)</div>
+          <img id="preview" alt="Aperçu lésion" />
+        </div>
+
+        <div class="grid-2">
+          <label class="field">Réf. Patient (anonyme)<input id="patientRef" type="text" placeholder="ex. PAT-2026-042" /></label>
+          <label class="field">Libellé Lésion<input id="lesionLabel" type="text" placeholder="ex. Dos-scapula-D" /></label>
+        </div>
+
+        <div class="grid-2">
+          <label class="field">Âge (ans)<input id="age" type="number" min="0" max="120" placeholder="ex. 65" /></label>
+          <label class="field">Sexe
+            <select id="sex">
+              <option value="">Non renseigné</option>
+              <option value="female">Femme</option>
+              <option value="male">Homme</option>
+            </select>
+          </label>
+        </div>
+        <div style="margin-top:10px">
+          <label class="field">Localisation anatomique<input id="site" type="text" placeholder="ex. Dos, membre supérieur, visage..." /></label>
+        </div>
+
+        <div class="checks">
+          <strong style="font-size:12.5px; color:#334155;">Drapeaux rouges cliniques (Verrou 4 — bloquent la Zone Verte) :</strong>
+          <label><input id="evolving" type="checkbox" /> Lésion évolutive récente (critère E d'ABCDE)</label>
+          <label><input id="bleeding" type="checkbox" /> Saignement ou ulcération</label>
+          <label><input id="new50" type="checkbox" /> Nouvelle lésion atypique après 50 ans</label>
+          <label><input id="history" type="checkbox" /> Antécédent personnel/familial de mélanome</label>
+          <label><input id="tta4" type="checkbox" checked /> Activer TTA-4 rotations + contrôle d'instabilité</label>
+          <label><input id="heatmapOpt" type="checkbox" checked /> Générer carte d'explicabilité visuelle ONNX (occlusion)</label>
+          <label><input id="adaptive" type="checkbox" /> Mode Éco / Fast-Path S1 (&lt; 6.7 % — opt-in dépistage)</label>
+        </div>
+
+        <button id="runBtn" class="primary" disabled>Analyser localement (Offline)</button>
       </div>
 
+      <div class="card">
+        <h2>2. Verdict Agent 3-Zones, Explicabilité &amp; Dossier PDF</h2>
+        <div id="placeholder" class="muted">Chargez une image dermatoscopique puis lancez l'analyse. L'agent orchestre les 6 outils, sauvegarde en SQLite local et génère la carte d'explicabilité sans envoi cloud.</div>
+        <div id="resultPane" style="display:none">
+          <div id="zoneBox" class="zone-box"></div>
+          <div class="metrics-row">
+            <div class="metric"><div class="k">Risque Fusionné</div><div id="mFused" class="v">—</div></div>
+            <div class="metric"><div class="k">System 1 (ONNX)</div><div id="mS1" class="v">—</div></div>
+            <div class="metric"><div class="k">MedGemma (S2)</div><div id="mS2" class="v">—</div></div>
+          </div>
+          <div class="muted" id="metaLine"></div>
+
+          <div class="visual-box" id="visualBox" style="display:none">
+            <div class="visual-tabs">
+              <button class="vis-btn active" id="visOrig">Cliché Original</button>
+              <button class="vis-btn" id="visHeat" style="display:none">Explicabilité ONNX (Occlusion)</button>
+              <button class="vis-btn" id="visRoi" style="display:none">ROI Recadré</button>
+            </div>
+            <img id="visualImg" alt="Visualisation lésion" />
+          </div>
+
+          <div style="margin-top:10px; font-size:12.5px; font-weight:600;">Règles de sécurité déclenchées :</div>
+          <div id="rulesBox" class="rules"></div>
+          <div style="margin-top:10px; font-size:12.5px; font-weight:600;">Trace d'exécution Agent (6 outils) :</div>
+          <ul id="traceList" class="trace-list"></ul>
+          <div style="margin-top:10px; font-size:12.5px; font-weight:600;">Questions d'anamnèse prioritaires :</div>
+          <ul id="qList" class="q-list"></ul>
+          <div style="margin-top:10px; font-size:12.5px; font-weight:600;">Fiche d'adressage structurée (sécurisée Hors-MDR) :</div>
+          <div id="summaryBox" class="summary-box"></div>
+
+          <div style="margin-top:10px">
+            <label class="field">Notes cliniques du médecin (sauvegarde SQLite locale)
+              <textarea id="notesInput" placeholder="Ajouter une observation clinique, décision de biopsie ou date de contrôle..."></textarea>
+            </label>
+            <button id="saveNotesBtn" class="secondary" style="margin-top:6px">Enregistrer notes</button>
+            <span id="notesSavedMsg" class="muted" style="margin-left:8px"></span>
+          </div>
+
+          <div class="actions">
+            <button id="pdfBtn" class="secondary" style="background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">Télécharger Dossier PDF</button>
+            <button id="copyBtn" class="secondary">Copier la fiche médecin</button>
+            <button id="auditBtn" class="secondary">Télécharger Audit Trail JSON</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 2: HISTORY -->
+  <section id="tab-history" class="tab-panel" style="padding-top:16px">
+    <div class="card">
+      <h2>Historique Local des Dossiers (SQLite — 100 % Offline)</h2>
+      <div class="history-controls">
+        <input id="histSearch" type="text" placeholder="Rechercher patient, lésion, entité, ID..." style="min-width:260px" />
+        <select id="histZone">
+          <option value="">Toutes les zones</option>
+          <option value="RED_PRIORITY_DERMATOLOGY">Zone Rouge</option>
+          <option value="AMBER_UNCERTAIN_TELEEXPERTISE">Zone Grise</option>
+          <option value="GREEN_LOW_RISK_SURVEILLANCE">Zone Verte</option>
+        </select>
+        <button id="histRefreshBtn" class="secondary">Actualiser</button>
+        <span id="histCount" class="muted"></span>
+      </div>
+      <div id="caseGrid" class="case-grid"></div>
+    </div>
+  </section>
+
+  <!-- TAB 3: LONGITUDINAL COMPARE -->
+  <section id="tab-compare" class="tab-panel" style="padding-top:16px">
+    <div class="card">
+      <h2>Suivi Longitudinal Côte-à-Côte (Détection d'Évolution — Critère E)</h2>
       <div class="grid-2">
-        <label class="field">Âge (ans)<input id="age" type="number" min="0" max="120" placeholder="ex. 65" /></label>
-        <label class="field">Sexe
-          <select id="sex">
-            <option value="">Non renseigné</option>
-            <option value="female">Femme</option>
-            <option value="male">Homme</option>
-          </select>
+        <label class="field">Examen initial (J0)
+          <select id="cmpBase"></select>
+        </label>
+        <label class="field">Examen de suivi (J+N)
+          <select id="cmpFollow"></select>
         </label>
       </div>
-      <div style="margin-top:10px">
-        <label class="field">Localisation anatomique<input id="site" type="text" placeholder="ex. Dos, membre supérieur, visage..." /></label>
-      </div>
-
-      <div class="checks">
-        <strong style="font-size:12.5px; color:#334155;">Drapeaux rouges cliniques (Verrou 4 — bloquent la Zone Verte) :</strong>
-        <label><input id="evolving" type="checkbox" /> Lésion évolutive récente (critère E d'ABCDE)</label>
-        <label><input id="bleeding" type="checkbox" /> Saignement ou ulcération</label>
-        <label><input id="new50" type="checkbox" /> Nouvelle lésion atypique après 50 ans</label>
-        <label><input id="history" type="checkbox" /> Antécédent personnel/familial de mélanome</label>
-        <label><input id="tta4" type="checkbox" checked /> Activer TTA-4 rotations + contrôle d'instabilité</label>
-        <label><input id="adaptive" type="checkbox" /> Mode Éco / Fast-Path S1 (&lt; 6.7 % — économise ~35 % d'appels VLM en dépistage)</label>
-      </div>
-
-      <button id="runBtn" class="primary" disabled>Analyser localement (Offline)</button>
-    </section>
-
-    <section class="card">
-      <h2>2. Sortie Agent 3-Zones &amp; Fiche d'adressage sécurisée</h2>
-      <div id="placeholder" class="muted">Chargez une image dermatoscopique puis lancez l'analyse. L'agent orchestre les 6 outils et verrous localement sans envoi cloud.</div>
-      <div id="resultPane" style="display:none">
-        <div id="zoneBox" class="zone-box"></div>
+      <button id="cmpBtn" class="primary" style="max-width:300px">Comparer l'évolution</button>
+      <div id="cmpResult" style="display:none">
+        <div id="cmpAlert" class="alert-box"></div>
         <div class="metrics-row">
-          <div class="metric"><div class="k">Risque Fusionné</div><div id="mFused" class="v">—</div></div>
-          <div class="metric"><div class="k">System 1 (ONNX)</div><div id="mS1" class="v">—</div></div>
-          <div class="metric"><div class="k">MedGemma (S2)</div><div id="mS2" class="v">—</div></div>
+          <div class="metric"><div class="k">Δ Risque Fusionné</div><div id="cmpDelta" class="v">—</div></div>
+          <div class="metric"><div class="k">Δ System 1 ONNX</div><div id="cmpDeltaS1" class="v">—</div></div>
+          <div class="metric"><div class="k">Intervalle</div><div id="cmpDays" class="v">—</div></div>
         </div>
-        <div class="muted" id="metaLine"></div>
-        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Règles de sécurité déclenchées :</div>
-        <div id="rulesBox" class="rules"></div>
-        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Trace d'exécution Agent (6 outils) :</div>
-        <ul id="traceList" class="trace-list"></ul>
-        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Questions d'anamnèse prioritaires (médecin généraliste) :</div>
-        <ul id="qList" class="q-list"></ul>
-        <div style="margin-top:12px; font-size:12.5px; font-weight:600;">Fiche d'adressage structurée (sécurisée Hors-MDR) :</div>
-        <div id="summaryBox" class="summary-box"></div>
-        <div class="actions">
-          <button id="copyBtn" class="secondary">Copier la fiche médecin</button>
-          <button id="auditBtn" class="secondary">Télécharger Audit Trail JSON</button>
-        </div>
+        <div class="cmp-grid" id="cmpCards"></div>
       </div>
-    </section>
-  </main>
+    </div>
+  </section>
 
   <script>
     let selectedFile = null;
     let lastPayload = null;
+    let currentVisual = "orig";
+
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.tab).classList.add("active");
+        if (btn.dataset.tab === "tab-history") loadHistory();
+        if (btn.dataset.tab === "tab-compare") populateCompareSelects();
+      };
+    });
 
     async function refreshHealth() {
       try {
@@ -172,6 +301,82 @@
       RED_PRIORITY_DERMATOLOGY: "ZONE ROUGE — Risque élevé (Adressage dermatologique prioritaire)"
     };
 
+    function setVisualMode(mode) {
+      currentVisual = mode;
+      const img = document.getElementById("visualImg");
+      ["visOrig", "visHeat", "visRoi"].forEach(id => document.getElementById(id).classList.remove("active"));
+      if (mode === "heat" && lastPayload && lastPayload.heatmap_b64) {
+        img.src = "data:image/png;base64," + lastPayload.heatmap_b64;
+        document.getElementById("visHeat").classList.add("active");
+      } else if (mode === "roi" && lastPayload && lastPayload.roi_b64) {
+        img.src = "data:image/png;base64," + lastPayload.roi_b64;
+        document.getElementById("visRoi").classList.add("active");
+      } else if (lastPayload && lastPayload.original_b64) {
+        img.src = "data:image/png;base64," + lastPayload.original_b64;
+        document.getElementById("visOrig").classList.add("active");
+      }
+    }
+    document.getElementById("visOrig").onclick = () => setVisualMode("orig");
+    document.getElementById("visHeat").onclick = () => setVisualMode("heat");
+    document.getElementById("visRoi").onclick = () => setVisualMode("roi");
+
+    function renderCasePayload(data) {
+      lastPayload = data;
+      const a = data.assessment;
+      document.getElementById("placeholder").style.display = "none";
+      document.getElementById("resultPane").style.display = "block";
+
+      const zb = document.getElementById("zoneBox");
+      zb.className = "zone-box zone-" + a.triage_zone;
+      zb.innerHTML = `<strong>${ZONE_LABELS[a.triage_zone] || a.triage_zone}</strong>`
+        + `<div style="margin-top:4px;font-size:12px">Routage Agent : <code>${data.routing_decision}</code></div>`
+        + (a.retake_recommended ? `<div style="margin-top:6px;font-size:12.5px">Reprise photo conseillée : ${data.preflight.recommendation_fr}</div>` : "");
+
+      const s2Online = data.routing_decision === "HYBRID_FULL_S1_PLUS_S2";
+      const s2Label = s2Online
+        ? (a.p_medgemma_cal * 100).toFixed(1) + "%"
+        : (data.routing_decision === "FAST_PATH_SYS1_ONLY" ? "Fast-Path (S1)" : "Hors ligne");
+      document.getElementById("mFused").textContent = (a.calibrated_risk_score * 100).toFixed(1) + "%";
+      document.getElementById("mS1").textContent = (a.p_sys1_cal * 100).toFixed(1) + "%";
+      document.getElementById("mS2").textContent = s2Label;
+      const disStr = s2Online ? (a.disagreement * 100).toFixed(1) + "%" : "N/A";
+      document.getElementById("metaLine").textContent =
+        `Dossier ${data.case_id} · Patient: ${data.patient_ref || "—"} · Entité S1: ${a.sys1_top_entity} · Écart S1/S2: ${disStr} · `
+        + `Instabilité TTA: ${(a.tta_risk_std ?? 0).toFixed(3)} · Latence: ${data.total_latency_ms} ms`;
+
+      const vbox = document.getElementById("visualBox");
+      if (data.original_b64) {
+        vbox.style.display = "block";
+        document.getElementById("visHeat").style.display = data.heatmap_b64 ? "inline-block" : "none";
+        document.getElementById("visRoi").style.display = data.roi_b64 ? "inline-block" : "none";
+        setVisualMode(data.heatmap_b64 ? "heat" : "orig");
+      } else {
+        vbox.style.display = "none";
+      }
+
+      const rb = document.getElementById("rulesBox");
+      rb.innerHTML = a.triggered_rules.length
+        ? a.triggered_rules.map(r => `<span class="rule-tag" title="${r.detail_fr}">${r.code}</span>`).join("")
+        : `<span class="rule-tag">AUCUNE_ALERTE_HARNESS</span>`;
+
+      const tl = document.getElementById("traceList");
+      tl.innerHTML = (data.trace || []).map(st =>
+        `<li class="trace-item"><span><span class="tname">${st.step_index}. ${st.tool_name}</span> — ${st.summary_fr}</span><span class="muted">${st.duration_ms} ms</span></li>`
+      ).join("");
+
+      const ql = document.getElementById("qList");
+      const qs = (data.action_plan && data.action_plan.missing_anamnesis_questions) || [];
+      ql.innerHTML = qs.length
+        ? qs.map(q => `<li><strong>${q.question_fr}</strong> <span class="muted">(${q.clinical_rationale_fr})</span></li>`).join("")
+        : `<li>Anamnèse de base renseignée.</li>`;
+
+      document.getElementById("summaryBox").textContent =
+        (data.action_plan && data.action_plan.gp_referral_letter_fr)
+        || (a.safe_referral_summary_fr + "\n\n" + a.ruo_disclaimer_fr);
+      document.getElementById("notesInput").value = data.clinician_notes || "";
+      document.getElementById("notesSavedMsg").textContent = "";
+    }
+
     runBtn.onclick = async () => {
       if (!selectedFile) return;
       runBtn.disabled = true;
@@ -179,6 +384,10 @@
       try {
         const fd = new FormData();
         fd.append("image", selectedFile);
+        const pref = document.getElementById("patientRef").value.trim();
+        const llab = document.getElementById("lesionLabel").value.trim();
+        if (pref) fd.append("patient_ref", pref);
+        if (llab) fd.append("lesion_label", llab);
         const age = document.getElementById("age").value;
         if (age) fd.append("age_years", age);
         const sex = document.getElementById("sex").value;
@@ -190,53 +399,13 @@
         fd.append("new_lesion_after_50", document.getElementById("new50").checked);
         fd.append("personal_or_family_melanoma_history", document.getElementById("history").checked);
         fd.append("use_tta4", document.getElementById("tta4").checked);
+        fd.append("include_heatmap", document.getElementById("heatmapOpt").checked);
         fd.append("adaptive_routing", document.getElementById("adaptive").checked);
 
         const resp = await fetch("/api/analyze", { method: "POST", body: fd });
         if (!resp.ok) throw new Error(await resp.text());
         const data = await resp.json();
-        lastPayload = data;
-        const a = data.assessment;
-
-        document.getElementById("placeholder").style.display = "none";
-        document.getElementById("resultPane").style.display = "block";
-        const zb = document.getElementById("zoneBox");
-        zb.className = "zone-box zone-" + a.triage_zone;
-        zb.innerHTML = `<strong>${ZONE_LABELS[a.triage_zone] || a.triage_zone}</strong>`
-          + `<div style="margin-top:4px;font-size:12px">Routage Agent : <code>${data.routing_decision}</code></div>`
-          + (a.retake_recommended ? `<div style="margin-top:6px;font-size:12.5px">Reprise photo conseillée : ${data.preflight.recommendation_fr}</div>` : "");
-
-        const s2Online = data.system2_status === "connected_llama_cpp";
-        const s2Label = s2Online
-          ? (a.p_medgemma_cal * 100).toFixed(1) + "%"
-          : (data.system2_status === "fast_path_skipped" ? "Fast-Path (S1)" : "Hors ligne");
-        document.getElementById("mFused").textContent = (a.calibrated_risk_score * 100).toFixed(1) + "%";
-        document.getElementById("mS1").textContent = (a.p_sys1_cal * 100).toFixed(1) + "%";
-        document.getElementById("mS2").textContent = s2Label;
-        const disStr = s2Online ? (a.disagreement * 100).toFixed(1) + "%" : "N/A";
-        document.getElementById("metaLine").textContent =
-          `Dossier ${data.case_id} · Entité S1: ${a.sys1_top_entity} · Écart S1/S2: ${disStr} · `
-          + `Instabilité TTA: ${(a.tta_risk_std ?? 0).toFixed(3)} · Latence totale: ${data.total_latency_ms} ms`;
-
-        const rb = document.getElementById("rulesBox");
-        rb.innerHTML = a.triggered_rules.length
-          ? a.triggered_rules.map(r => `<span class="rule-tag" title="${r.detail_fr}">${r.code}</span>`).join("")
-          : `<span class="rule-tag">AUCUNE_ALERTE_HARNESS</span>`;
-
-        const tl = document.getElementById("traceList");
-        tl.innerHTML = (data.trace || []).map(st =>
-          `<li class="trace-item"><span><span class="tname">${st.step_index}. ${st.tool_name}</span> — ${st.summary_fr}</span><span class="muted">${st.duration_ms} ms</span></li>`
-        ).join("");
-
-        const ql = document.getElementById("qList");
-        const qs = (data.action_plan && data.action_plan.missing_anamnesis_questions) || [];
-        ql.innerHTML = qs.length
-          ? qs.map(q => `<li><strong>${q.question_fr}</strong> <span class="muted">(${q.clinical_rationale_fr})</span></li>`).join("")
-          : `<li>Anamnèse de base renseignée.</li>`;
-
-        document.getElementById("summaryBox").textContent =
-          (data.action_plan && data.action_plan.gp_referral_letter_fr)
-          || (a.safe_referral_summary_fr + "\n\n" + a.ruo_disclaimer_fr);
+        renderCasePayload(data);
       } catch (err) {
         alert("Erreur analyse : " + err.message);
       } finally {
@@ -245,6 +414,24 @@
       }
     };
 
+    document.getElementById("saveNotesBtn").onclick = async () => {
+      if (!lastPayload) return;
+      const notes = document.getElementById("notesInput").value;
+      const r = await fetch(`/api/cases/${lastPayload.case_id}/notes`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clinician_notes: notes }),
+      });
+      if (r.ok) {
+        lastPayload = await r.json();
+        document.getElementById("notesSavedMsg").textContent = "Notes enregistrées en SQLite.";
+      }
+    };
+
+    document.getElementById("pdfBtn").onclick = () => {
+      if (!lastPayload) return;
+      window.open(`/api/cases/${lastPayload.case_id}/report.pdf`, "_blank");
+    };
     document.getElementById("copyBtn").onclick = () => {
       if (!lastPayload) return;
       navigator.clipboard.writeText(document.getElementById("summaryBox").textContent);
@@ -256,6 +443,101 @@
       a.href = URL.createObjectURL(blob);
       a.download = `${lastPayload.case_id}_audit.json`;
       a.click();
+    };
+
+    async function loadHistory() {
+      const q = document.getElementById("histSearch").value.trim();
+      const zone = document.getElementById("histZone").value;
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (zone) params.set("zone", zone);
+      const r = await fetch("/api/cases?" + params.toString());
+      const data = await r.json();
+      document.getElementById("histCount").textContent = `${data.count} dossier(s) local(aux)`;
+      const grid = document.getElementById("caseGrid");
+      if (!data.cases.length) {
+        grid.innerHTML = `<div class="muted">Aucun dossier enregistré pour ce filtre.</div>`;
+        return;
+      }
+      grid.innerHTML = data.cases.map(c => `
+        <div class="case-card">
+          <div class="case-head">
+            <strong>${c.case_id}</strong>
+            <span class="badge badge-${c.triage_zone}">${c.triage_zone.split("_")[0]}</span>
+          </div>
+          <div class="muted">${c.created_utc.slice(0,19)} · ${c.patient_ref || "Sans réf."} · ${c.lesion_label || "Sans libellé"}</div>
+          <div class="case-thumbs">
+            ${c.original_b64 ? `<img src="data:image/png;base64,${c.original_b64}" alt="orig"/>` : ""}
+            ${c.heatmap_b64 ? `<img src="data:image/png;base64,${c.heatmap_b64}" alt="heat"/>` : ""}
+          </div>
+          <div>Risque calibré : <strong>${(c.calibrated_risk * 100).toFixed(1)}%</strong> · Entité S1 : <code>${c.sys1_top_entity || "n/a"}</code></div>
+          <div class="actions" style="margin-top:4px">
+            <button class="secondary" onclick="reopenCase('${c.case_id}')">Ouvrir</button>
+            <button class="secondary" onclick="window.open('/api/cases/${c.case_id}/report.pdf','_blank')">PDF</button>
+            <button class="danger" onclick="removeCase('${c.case_id}')">Supprimer</button>
+          </div>
+        </div>
+      `).join("");
+    }
+    document.getElementById("histRefreshBtn").onclick = loadHistory;
+    document.getElementById("histZone").onchange = loadHistory;
+
+    window.reopenCase = async (cid) => {
+      const r = await fetch(`/api/cases/${cid}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      renderCasePayload(data);
+      document.querySelector('[data-tab="tab-analyze"]').click();
+    };
+    window.removeCase = async (cid) => {
+      await fetch(`/api/cases/${cid}`, { method: "DELETE" });
+      loadHistory();
+    };
+
+    async function populateCompareSelects() {
+      const r = await fetch("/api/cases?limit=200");
+      const data = await r.json();
+      const opts = data.cases.map(c =>
+        `<option value="${c.case_id}">${c.case_id} | ${c.created_utc.slice(0,10)} | ${c.patient_ref || "—"} | ${(c.calibrated_risk*100).toFixed(1)}%</option>`
+      ).join("");
+      document.getElementById("cmpBase").innerHTML = opts;
+      document.getElementById("cmpFollow").innerHTML = opts;
+      if (data.cases.length >= 2) {
+        document.getElementById("cmpBase").selectedIndex = 1;
+        document.getElementById("cmpFollow").selectedIndex = 0;
+      }
+    }
+
+    document.getElementById("cmpBtn").onclick = async () => {
+      const b = document.getElementById("cmpBase").value;
+      const f = document.getElementById("cmpFollow").value;
+      if (!b || !f) return;
+      const r = await fetch(`/api/cases/compare?base_id=${encodeURIComponent(b)}&followup_id=${encodeURIComponent(f)}`);
+      if (!r.ok) { alert("Sélectionnez deux dossiers valides."); return; }
+      const d = await r.json();
+      const c = d.comparison;
+      document.getElementById("cmpResult").style.display = "block";
+      const ab = document.getElementById("cmpAlert");
+      ab.className = "alert-box " + (c.evolution_alert ? "alert-danger" : "alert-ok");
+      ab.textContent = c.alert_reason_fr;
+      document.getElementById("cmpDelta").textContent = (c.delta_risk >= 0 ? "+" : "") + (c.delta_risk * 100).toFixed(1) + "%";
+      document.getElementById("cmpDeltaS1").textContent = (c.delta_sys1 >= 0 ? "+" : "") + (c.delta_sys1 * 100).toFixed(1) + "%";
+      document.getElementById("cmpDays").textContent = c.days_apart.toFixed(1) + " j";
+
+      document.getElementById("cmpCards").innerHTML = [
+        { title: "Examen Initial (J0)", item: d.base_case },
+        { title: "Examen de Suivi (J+N)", item: d.followup_case },
+      ].map(x => `
+        <div class="case-card">
+          <strong>${x.title} — ${x.item.case_id}</strong>
+          <div class="muted">${x.item.created_utc.slice(0,19)} · Zone : <code>${x.item.assessment.triage_zone}</code></div>
+          <div class="case-thumbs">
+            ${x.item.original_b64 ? `<img src="data:image/png;base64,${x.item.original_b64}" style="width:140px;height:140px"/>` : ""}
+            ${x.item.heatmap_b64 ? `<img src="data:image/png;base64,${x.item.heatmap_b64}" style="width:140px;height:140px"/>` : ""}
+          </div>
+          <div>Risque fusionné : <strong>${(x.item.assessment.calibrated_risk_score*100).toFixed(1)}%</strong></div>
+        </div>
+      `).join("");
     };
   </script>
 </body>

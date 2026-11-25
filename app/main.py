@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import HTMLResponse, Response
 from PIL import Image, UnidentifiedImageError
 
 from medgemma_dermato.agent import AgentConfig, DermoscopyTriageAgent
@@ -19,6 +19,9 @@ from medgemma_dermato.clinical_harness import (
 )
 from medgemma_dermato.config import load_config
 from medgemma_dermato.edge_vlm import EdgeVLMClient
+from medgemma_dermato.explainability import compute_occlusion_heatmap, encode_pil_png_b64
+from medgemma_dermato.pdf_report import render_referral_pdf
+from medgemma_dermato.storage import LocalCaseStore
 from medgemma_dermato.system1 import OnnxSystem1Classifier
 
 STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
@@ -32,13 +35,15 @@ def create_app(
     system1_override: Any | None = None,
     vlm_override: Any | None = None,
     agent_cfg: AgentConfig | None = None,
+    db_path: Path | str | None = None,
 ) -> FastAPI:
-    """Create the offline Edge FastAPI app backed by DermoscopyTriageAgent."""
+    """Create the offline Edge FastAPI app backed by DermoscopyTriageAgent + SQLite."""
     app = FastAPI(
         title="MedGemma Dermato — Adaptive Clinical Triage Agent & Safety Harness (RUO)",
-        version="1.1.0",
+        version="2.0.0",
         description=(
-            "Offline preflight QA + System 1 ONNX + Adaptive MedGemma GGUF + 6-Barrier Harness."
+            "Offline preflight QA + System 1 ONNX + Adaptive MedGemma GGUF + 6-Barrier Harness "
+            "+ Local SQLite Longitudinal Store + ONNX Explainability + PDF Export."
         ),
     )
 
@@ -50,6 +55,10 @@ def create_app(
         os.getenv("SYS1_CAL_PATH", "checkpoints/system1_v1/system1_calibration.json")
     )
     vlm_url = llama_server_url or os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8080")
+    resolved_db = Path(db_path) if db_path is not None else Path(
+        os.getenv("MEDGEMMA_DB_PATH", "data/local_cases.db")
+    )
+    store = LocalCaseStore(db_path=resolved_db)
 
     sys1_clf = system1_override
     if sys1_clf is None and model_path.exists():
@@ -82,11 +91,13 @@ def create_app(
         return {
             "status": "ok",
             "offline_edge": True,
+            "version": "2.0.0",
             "agent_enabled": agent is not None,
             "system1_onnx_ready": sys1_clf is not None,
             "system1_model": str(model_path) if sys1_clf is not None else None,
             "system2_llama_server_ready": sys2_ok,
             "system2_url": vlm_url,
+            "db_path": str(resolved_db),
             "policy_version": policy.policy_version,
             "ruo_disclaimer_fr": RUO_DISCLAIMER_FR,
         }
@@ -94,6 +105,8 @@ def create_app(
     @app.post("/api/analyze")
     async def analyze_lesion(
         image: UploadFile = File(...),
+        patient_ref: str | None = Form(default=None),
+        lesion_label: str | None = Form(default=None),
         age_years: int | None = Form(default=None),
         sex: str | None = Form(default=None),
         anatom_site: str | None = Form(default=None),
@@ -103,6 +116,7 @@ def create_app(
         personal_or_family_melanoma_history: bool = Form(default=False),
         use_tta4: bool = Form(default=True),
         adaptive_routing: bool = Form(default=False),
+        include_heatmap: bool = Form(default=True),
     ) -> dict[str, Any]:
         raw_bytes = await image.read()
         if not raw_bytes:
@@ -137,6 +151,33 @@ def create_app(
             image_sha256=image_sha,
         )
 
+        original_b64 = encode_pil_png_b64(pil_img, max_side=384)
+        heatmap_b64: str | None = None
+        roi_b64: str | None = None
+        if include_heatmap:
+            exp = compute_occlusion_heatmap(
+                sys1_clf,
+                pil_img,
+                baseline_risk_cal=run_res.assessment.p_sys1_cal,
+                roi_crop_applied=run_res.roi_crop_applied,
+            )
+            if exp is not None:
+                original_b64 = exp["original_b64"]
+                heatmap_b64 = exp["heatmap_b64"]
+                roi_b64 = exp["roi_b64"]
+
+        stored = store.save_case(
+            run_res=run_res,
+            patient_ref=patient_ref or None,
+            lesion_label=lesion_label or None,
+            age_years=age_years,
+            sex=sex or None,
+            anatom_site=anatom_site or None,
+            original_b64=original_b64,
+            heatmap_b64=heatmap_b64,
+            roi_b64=roi_b64,
+        )
+
         sys2_status = (
             "connected_llama_cpp"
             if run_res.routing_decision == "HYBRID_FULL_S1_PLUS_S2"
@@ -146,21 +187,71 @@ def create_app(
                 else "offline_degraded_s1_only"
             )
         )
+        stored["system2_status"] = sys2_status
+        return stored
+
+    @app.get("/api/cases")
+    def list_cases(
+        zone: str | None = Query(default=None),
+        patient_ref: str | None = Query(default=None),
+        q: str | None = Query(default=None),
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> dict[str, Any]:
+        items = store.list_cases(zone=zone, patient_ref=patient_ref, query=q, limit=limit)
+        return {"count": len(items), "cases": items}
+
+    @app.get("/api/cases/compare")
+    def compare_cases(
+        base_id: str = Query(...),
+        followup_id: str = Query(...),
+    ) -> dict[str, Any]:
+        try:
+            cmp_res = store.compare_cases(base_id=base_id, followup_id=followup_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        base_case = store.get_case(base_id)
+        follow_case = store.get_case(followup_id)
         return {
-            "case_id": run_res.case_id,
-            "routing_decision": run_res.routing_decision,
-            "vlm_invoked": run_res.vlm_invoked,
-            "roi_crop_applied": run_res.roi_crop_applied,
-            "system2_status": sys2_status,
-            "system2_logprobs_used": run_res.system2_logprobs_used,
-            "system2_latency_ms": run_res.system2_latency_ms,
-            "total_latency_ms": run_res.total_latency_ms,
-            "preflight": run_res.preflight.model_dump(),
-            "system1": run_res.system1.model_dump(),
-            "assessment": run_res.assessment.model_dump(),
-            "action_plan": run_res.action_plan.model_dump(),
-            "trace": [step.model_dump() for step in run_res.trace],
+            "comparison": cmp_res.model_dump(),
+            "base_case": base_case,
+            "followup_case": follow_case,
         }
+
+    @app.get("/api/cases/{case_id}")
+    def get_case(case_id: str) -> dict[str, Any]:
+        rec = store.get_case(case_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail=f"Case {case_id} not found.")
+        return rec
+
+    @app.patch("/api/cases/{case_id}/notes")
+    def update_case_notes(
+        case_id: str,
+        payload: dict[str, str] = Body(...),
+    ) -> dict[str, Any]:
+        notes = str(payload.get("clinician_notes") or "")
+        updated = store.update_notes(case_id, notes)
+        if updated is None:
+            raise HTTPException(status_code=404, detail=f"Case {case_id} not found.")
+        return updated
+
+    @app.delete("/api/cases/{case_id}")
+    def delete_case(case_id: str) -> dict[str, Any]:
+        if not store.delete_case(case_id):
+            raise HTTPException(status_code=404, detail=f"Case {case_id} not found.")
+        return {"deleted": True, "case_id": case_id}
+
+    @app.get("/api/cases/{case_id}/report.pdf")
+    def export_case_pdf(case_id: str) -> Response:
+        rec = store.get_case(case_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail=f"Case {case_id} not found.")
+        pdf_bytes = render_referral_pdf(rec)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{case_id}_dossier.pdf"'},
+        )
 
     return app
 

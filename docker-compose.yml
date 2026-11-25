@@ -1,0 +1,39 @@
+services:
+  edge-app:
+    build: .
+    container_name: medgemma-dermato-edge
+    ports:
+      - "8000:8000"
+    environment:
+      - SYS1_ONNX_PATH=/app/checkpoints/system1_v1/system1_convnext_tiny_fp32.onnx
+      - SYS1_CAL_PATH=/app/checkpoints/system1_v1/system1_calibration.json
+      - LLAMA_SERVER_URL=${LLAMA_SERVER_URL:-http://llama-vlm:8080}
+      - MEDGEMMA_DB_PATH=/app/data/local_cases.db
+    volumes:
+      - ./checkpoints:/app/checkpoints:ro
+      - ./data:/app/data
+    restart: unless-stopped
+
+  llama-vlm:
+    profiles: ["vlm"]
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: medgemma-dermato-vlm
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./checkpoints/gguf:/models:ro
+    command:
+      - -m
+      - /models/medgemma-dermato-v1-q8_0.gguf
+      - --mmproj
+      - /models/mmproj-medgemma-dermato-v1-f16.gguf
+      - -c
+      - "4096"
+      - --parallel
+      - "1"
+      - --cache-prompt
+      - --offline
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"

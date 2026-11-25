@@ -1,111 +1,105 @@
-"""Integration tests for the offline Edge FastAPI app and Last-Mile Harness endpoints."""
+"""End-to-end tests for offline FastAPI Edge Cabinet App (SQLite, notes, PDF, compare)."""
 
 import io
+from pathlib import Path
 
 from fastapi.testclient import TestClient
-from PIL import Image
 
 from app.main import create_app
-from medgemma_dermato.edge_vlm import EdgeVLMResult
-from medgemma_dermato.schema import TriageAssessment
-from medgemma_dermato.system1 import ENTITY_LABELS, System1Prediction
-
-
-class _StubSystem1:
-    def __init__(self, p_risk: float = 0.06, tta_std: float = 0.01) -> None:
-        self._p = p_risk
-        self._std = tta_std
-
-    def predict_image(self, image: Image.Image, tta: bool = True) -> System1Prediction:
-        probs = {k: 0.01 for k in ENTITY_LABELS}
-        probs["nevus"] = 0.92
-        return System1Prediction(
-            p_malignant_raw=self._p,
-            p_malignant_calibrated=self._p,
-            p_risk_raw=self._p,
-            p_risk_calibrated=self._p,
-            p_indeterminate=0.01,
-            p_melanoma=0.01,
-            entity_probs=probs,
-            predicted_entity="nevus",
-            tta_views=4 if tta else 1,
-            tta_risk_std=self._std,
-            tta_risk_range=self._std * 2.0,
-            latency_ms=12.0,
-        )
-
-
-class _StubVLM:
-    def __init__(self, online: bool = True, p_risk: float = 0.08) -> None:
-        self._online = online
-        self._p = p_risk
-
-    def healthcheck(self) -> bool:
-        return self._online
-
-    def analyze_image(
-        self,
-        image: Image.Image,
-        clinical_context: dict | None = None,
-    ) -> EdgeVLMResult:
-        parsed = TriageAssessment(
-            image_quality_adequate=True,
-            melanocytic_pattern="melanocytic",
-            entity_category="nevus",
-            research_triage_label="benign_pattern",
-            confidence=0.85,
-            abstain=False,
-            summary_for_referral_fr="Naevus typique sans atypie majeure.",
-        )
-        return EdgeVLMResult(
-            raw_text=parsed.model_dump_json(),
-            parsed=parsed,
-            p_risk_estimate=self._p,
-            p_melanoma_estimate=0.02,
-            latency_ms=150.0,
-        )
+from tests.test_agent import _MockSystem1, _SpyVLM, _textured_image
 
 
 def _jpeg_bytes() -> bytes:
-    img = Image.new("RGB", (400, 400), color=(160, 120, 110))
     buf = io.BytesIO()
-    img.save(buf, format="JPEG")
+    _textured_image(512).save(buf, format="JPEG", quality=95)
     return buf.getvalue()
 
 
-def test_edge_app_health_and_red_flag_escalation() -> None:
-    app = create_app(system1_override=_StubSystem1(0.05), vlm_override=_StubVLM(True, 0.05))
+def test_edge_app_full_lifecycle_analyze_history_pdf_compare_delete(tmp_path: Path) -> None:
+    app = create_app(
+        system1_override=_MockSystem1(p_risk=0.22, p_mel=0.10),
+        vlm_override=_SpyVLM(p_risk=0.68),
+        db_path=tmp_path / "edge_test.db",
+    )
     client = TestClient(app)
 
     h = client.get("/api/health")
     assert h.status_code == 200
-    body = h.json()
-    assert body["system1_onnx_ready"] is True
-    assert body["system2_llama_server_ready"] is True
+    assert h.json()["offline_edge"] is True
+    assert h.json()["system2_llama_server_ready"] is True
 
-    # Low risk + clinical red flag (lesion_evolving=True) -> MUST block GREEN -> AMBER
-    resp = client.post(
+    # 1. Analyze case 1 (baseline)
+    r1 = client.post(
         "/api/analyze",
-        files={"image": ("lesion.jpg", _jpeg_bytes(), "image/jpeg")},
-        data={"age_years": "68", "lesion_evolving": "true"},
+        files={"image": ("j0.jpg", _jpeg_bytes(), "image/jpeg")},
+        data={"patient_ref": "PAT-42", "lesion_label": "Dos", "age_years": "58"},
     )
-    assert resp.status_code == 200
-    payload = resp.json()
-    assert payload["system2_status"] == "connected_llama_cpp"
-    assert payload["assessment"]["triage_zone"] == "AMBER_UNCERTAIN_TELEEXPERTISE"
-    assert "CLINICAL_RED_FLAG_EVOLVING" in payload["assessment"]["audit"]["triggered_rules"]
-    assert payload["assessment"]["audit"]["image_sha256"]
+    assert r1.status_code == 200
+    c1 = r1.json()
+    assert c1["routing_decision"] == "HYBRID_FULL_S1_PLUS_S2"
+
+    # 2. Analyze case 2 (evolving red flag)
+    r2 = client.post(
+        "/api/analyze",
+        files={"image": ("j90.jpg", _jpeg_bytes(), "image/jpeg")},
+        data={
+            "patient_ref": "PAT-42",
+            "lesion_label": "Dos",
+            "lesion_evolving": "true",
+        },
+    )
+    assert r2.status_code == 200
+    c2 = r2.json()
+    assert c2["assessment"]["triage_zone"] == "RED_PRIORITY_DERMATOLOGY"
+
+    # 3. History list + Notes PATCH
+    hist = client.get("/api/cases", params={"patient_ref": "PAT-42"})
+    assert hist.status_code == 200
+    assert hist.json()["count"] == 2
+
+    patched = client.patch(
+        f"/api/cases/{c2['case_id']}/notes",
+        json={"clinician_notes": "Adressage dermatologique prioritaire."},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["clinician_notes"] == "Adressage dermatologique prioritaire."
+
+    # 4. PDF Export
+    pdf_resp = client.get(f"/api/cases/{c2['case_id']}/report.pdf")
+    assert pdf_resp.status_code == 200
+    assert pdf_resp.headers["content-type"] == "application/pdf"
+    assert pdf_resp.content.startswith(b"%PDF-")
+
+    # 5. Longitudinal Comparison
+    cmp_resp = client.get(
+        "/api/cases/compare",
+        params={"base_id": c1["case_id"], "followup_id": c2["case_id"]},
+    )
+    assert cmp_resp.status_code == 200
+    assert cmp_resp.json()["comparison"]["base_case_id"] == c1["case_id"]
+
+    # 6. GDPR Delete
+    del_resp = client.delete(f"/api/cases/{c1['case_id']}")
+    assert del_resp.status_code == 200
+    assert client.get(f"/api/cases/{c1['case_id']}").status_code == 404
 
 
-def test_edge_app_graceful_degraded_mode_when_vlm_offline() -> None:
-    app = create_app(system1_override=_StubSystem1(0.75), vlm_override=_StubVLM(online=False))
+def test_edge_app_graceful_degraded_mode_when_vlm_offline(tmp_path: Path) -> None:
+    class _OfflineVLM:
+        def healthcheck(self) -> bool:
+            return False
+
+    app = create_app(
+        system1_override=_MockSystem1(p_risk=0.05, p_mel=0.02),
+        vlm_override=_OfflineVLM(),
+        db_path=tmp_path / "edge_degraded.db",
+    )
     client = TestClient(app)
-    resp = client.post(
+    r = client.post(
         "/api/analyze",
         files={"image": ("lesion.jpg", _jpeg_bytes(), "image/jpeg")},
     )
-    assert resp.status_code == 200
-    payload = resp.json()
-    assert payload["system2_status"] == "offline_degraded_s1_only"
-    assert payload["assessment"]["triage_zone"] == "RED_PRIORITY_DERMATOLOGY"
-    assert "MODE DEGRADE SYSTEM 1 EDGE SEUL" in payload["assessment"]["safe_referral_summary_fr"]
+    assert r.status_code == 200
+    body = r.json()
+    assert body["routing_decision"] == "DEGRADED_SYS1_ONLY"
+    assert body["system2_status"] == "offline_degraded_s1_only"

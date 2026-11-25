@@ -20,6 +20,7 @@ from medgemma_dermato.eval.calibration import INDETERMINATE_ENTITIES, MALIGNANT_
 from medgemma_dermato.prompts import build_triage_inference_messages
 from medgemma_dermato.schema import (
     EntityCategory,
+    MelanocyticPattern,
     TriageAssessment,
     parse_triage_json,
     split_thinking_trace,
@@ -38,6 +39,17 @@ _ENTITY_FIRST_TOKEN_PREFIXES: tuple[tuple[str, EntityCategory], ...] = (
     ("oth", "other_benign"),
 )
 
+_MELANOCYTIC_FIRST_TOKEN_PREFIXES: tuple[tuple[str, MelanocyticPattern], ...] = (
+    ("mel", "melanocytic"),
+    ("non", "non_melanocytic"),
+    ("unc", "uncertain"),
+)
+_MELANOCYTIC_BRANCHES: tuple[MelanocyticPattern, ...] = (
+    "melanocytic",
+    "non_melanocytic",
+    "uncertain",
+)
+
 
 class EdgeVLMResult(BaseModel):
     """Structured inference result from local Edge llama-server (MedGemma GGUF)."""
@@ -49,7 +61,9 @@ class EdgeVLMResult(BaseModel):
     p_risk_estimate: float = Field(ge=0.0, le=1.0)
     p_melanoma_estimate: float = Field(ge=0.0, le=1.0)
     logprobs_used: bool = False
+    melanocytic_probs: dict[str, float] = Field(default_factory=dict)
     entity_probs: dict[str, float] = Field(default_factory=dict)
+    branches_probed: int = Field(default=1, ge=1)
     latency_ms: float = Field(ge=0.0)
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
@@ -115,28 +129,34 @@ def _map_token_to_entity(token_str: str) -> EntityCategory | None:
     return None
 
 
-def extract_entity_probs_from_logprobs(
-    logprobs_content: list[dict[str, Any]] | None,
-) -> tuple[float, float, dict[str, float]] | None:
-    """Extract continuous (p_risk, p_melanoma, entity_probs) from OpenAI chat logprobs.
+def _map_token_to_melanocytic(token_str: str) -> MelanocyticPattern | None:
+    cleaned = token_str.strip().lstrip('"').lower()
+    if not cleaned:
+        return None
+    if cleaned == "n":
+        return "non_melanocytic"
+    if cleaned == "u":
+        return "uncertain"
+    for prefix, pattern in _MELANOCYTIC_FIRST_TOKEN_PREFIXES:
+        if cleaned.startswith(prefix):
+            return pattern
+    return None
 
-    Locates the first generated value token immediately following `"entity_category":"` and
-    aggregates probability mass across all 9 EntityCategory first-token candidates in
-    `top_logprobs`. Returns None if the token marker or top_logprobs are missing.
-    """
+
+def _find_marker_top_logprobs(
+    logprobs_content: list[dict[str, Any]] | None,
+    marker: str,
+) -> list[dict[str, Any]] | None:
     if not logprobs_content:
         return None
 
     acc = ""
     target_entry: dict[str, Any] | None = None
-    marker = '"entity_category":"'
-
     for idx, entry in enumerate(logprobs_content):
         tok = str(entry.get("token") or "")
         prev_has_marker = marker in acc
         acc += tok
         if not prev_has_marker and marker in acc:
-            # Handle rare case where marker ends mid-token vs cleanly at token end
             after = acc.split(marker, 1)[1]
             if after:
                 target_entry = entry
@@ -146,32 +166,66 @@ def extract_entity_probs_from_logprobs(
 
     if target_entry is None:
         return None
-
     top_items = target_entry.get("top_logprobs") or []
-    if not top_items:
-        return None
+    return top_items if top_items else None
 
+
+def _aggregate_top_logprobs(
+    top_items: list[dict[str, Any]],
+    mapper: Any,
+) -> dict[str, float] | None:
     raw_mass: dict[str, float] = {}
     for cand in top_items:
-        ent = _map_token_to_entity(str(cand.get("token") or ""))
-        if ent is None:
+        label = mapper(str(cand.get("token") or ""))
+        if label is None:
             continue
         lp = cand.get("logprob")
         if lp is None:
             continue
         prob = math.exp(max(float(lp), -50.0))
-        raw_mass[ent] = raw_mass.get(ent, 0.0) + prob
+        raw_mass[label] = raw_mass.get(label, 0.0) + prob
 
     total_mass = sum(raw_mass.values())
     if total_mass <= 1e-6:
         return None
+    return {lbl: round(mass / total_mass, 6) for lbl, mass in raw_mass.items()}
 
-    entity_probs = {ent: round(mass / total_mass, 6) for ent, mass in raw_mass.items()}
+
+def _entity_probs_to_risk(entity_probs: dict[str, float]) -> tuple[float, float]:
     p_mal = sum(entity_probs.get(e, 0.0) for e in MALIGNANT_ENTITIES)
     p_ind = sum(entity_probs.get(e, 0.0) for e in INDETERMINATE_ENTITIES)
     p_risk = min(max(p_mal + p_ind, 1e-4), 1.0 - 1e-4)
     p_mel = min(max(entity_probs.get("melanoma", 0.0), 0.0), 1.0)
-    return round(p_risk, 6), round(p_mel, 6), entity_probs
+    return round(p_risk, 6), round(p_mel, 6)
+
+
+def extract_melanocytic_probs_from_logprobs(
+    logprobs_content: list[dict[str, Any]] | None,
+) -> dict[str, float] | None:
+    """Extract normalized distribution over melanocytic_pattern from OpenAI logprobs."""
+    top_items = _find_marker_top_logprobs(logprobs_content, '"melanocytic_pattern":"')
+    if not top_items:
+        return None
+    return _aggregate_top_logprobs(top_items, _map_token_to_melanocytic)
+
+
+def extract_entity_probs_from_logprobs(
+    logprobs_content: list[dict[str, Any]] | None,
+) -> tuple[float, float, dict[str, float]] | None:
+    """Extract continuous (p_risk, p_melanoma, entity_probs) from OpenAI chat logprobs.
+
+    Locates the first generated value token immediately following `"entity_category":"` and
+    aggregates probability mass across all 9 EntityCategory first-token candidates in
+    `top_logprobs`. Returns None if the token marker or top_logprobs are missing.
+    """
+    top_items = _find_marker_top_logprobs(logprobs_content, '"entity_category":"')
+    if not top_items:
+        return None
+    entity_probs = _aggregate_top_logprobs(top_items, _map_token_to_entity)
+    if entity_probs is None:
+        return None
+    p_risk, p_mel = _entity_probs_to_risk(entity_probs)
+    return p_risk, p_mel, entity_probs
 
 
 def estimate_risk_from_triage(parsed: TriageAssessment | None) -> tuple[float, float]:
@@ -198,12 +252,16 @@ class EdgeVLMClient:
         model_name: str = "medgemma-dermato-v1",
         request_logprobs: bool = True,
         top_logprobs: int = 20,
+        marginalize_branches: bool = True,
+        branch_min_prob: float = 0.005,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.model_name = model_name
         self.request_logprobs = request_logprobs
         self.top_logprobs = top_logprobs
+        self.marginalize_branches = marginalize_branches
+        self.branch_min_prob = branch_min_prob
         self._client = httpx.Client(timeout=timeout)
 
     def __enter__(self) -> "EdgeVLMClient":
@@ -222,6 +280,36 @@ class EdgeVLMClient:
             return resp.status_code == 200
         except httpx.HTTPError:
             return False
+
+    def _probe_entity_branch(
+        self,
+        messages: list[dict[str, Any]],
+        branch: MelanocyticPattern,
+    ) -> dict[str, float] | None:
+        """Probe 1-token entity distribution conditioned on a melanocytic_pattern prefix."""
+        prefill = (
+            "<unused94>thought\n<unused95>"
+            f'{{"image_quality_adequate":true,"melanocytic_pattern":"{branch}","entity_category":"'
+        )
+        payload = {
+            "model": self.model_name,
+            "messages": [*messages, {"role": "assistant", "content": prefill}],
+            "max_tokens": 1,
+            "temperature": 0.0,
+            "add_generation_prompt": False,
+            "logprobs": True,
+            "top_logprobs": self.top_logprobs,
+        }
+        resp = self._client.post(f"{self.base_url}/v1/chat/completions", json=payload)
+        resp.raise_for_status()
+        choices = resp.json().get("choices") or []
+        if not choices:
+            return None
+        lp_content = (choices[0].get("logprobs") or {}).get("content") or []
+        if not lp_content:
+            return None
+        top_items = lp_content[0].get("top_logprobs") or []
+        return _aggregate_top_logprobs(top_items, _map_token_to_entity)
 
     def analyze_image(
         self,
@@ -247,7 +335,6 @@ class EdgeVLMClient:
         t0 = time.perf_counter()
         resp = self._client.post(f"{self.base_url}/v1/chat/completions", json=payload)
         resp.raise_for_status()
-        latency_ms = round((time.perf_counter() - t0) * 1000.0, 2)
 
         body = resp.json()
         choices = body.get("choices") or []
@@ -261,15 +348,52 @@ class EdgeVLMClient:
         thought, _ = split_thinking_trace(raw_text)
         parsed, parse_err = parse_triage_json(raw_text)
 
+        mel_probs = extract_melanocytic_probs_from_logprobs(lp_content) or {}
         lp_extracted = extract_entity_probs_from_logprobs(lp_content)
+        branches_probed = 1
         if lp_extracted is not None:
             p_risk, p_mel, entity_probs = lp_extracted
             logprobs_used = True
+            if self.marginalize_branches and mel_probs:
+                greedy_branch = (
+                    parsed.melanocytic_pattern
+                    if parsed is not None
+                    else max(mel_probs.items(), key=lambda kv: kv[1])[0]
+                )
+                cond_probs: dict[str, dict[str, float]] = {greedy_branch: entity_probs}
+                for branch in _MELANOCYTIC_BRANCHES:
+                    if branch == greedy_branch:
+                        continue
+                    if mel_probs.get(branch, 0.0) < self.branch_min_prob:
+                        continue
+                    try:
+                        probed = self._probe_entity_branch(messages, branch)
+                    except httpx.HTTPError:
+                        probed = None
+                    if probed is not None:
+                        cond_probs[branch] = probed
+                        branches_probed += 1
+
+                if len(cond_probs) > 1:
+                    active_mass = sum(mel_probs.get(m, 0.0) for m in cond_probs)
+                    if active_mass > 1e-6:
+                        marg: dict[str, float] = {}
+                        for m_val, ent_dist in cond_probs.items():
+                            w_m = mel_probs.get(m_val, 0.0) / active_mass
+                            for e_val, p_e in ent_dist.items():
+                                marg[e_val] = marg.get(e_val, 0.0) + w_m * p_e
+                        tot_marg = sum(marg.values())
+                        if tot_marg > 1e-6:
+                            entity_probs = {
+                                e_val: round(val / tot_marg, 6) for e_val, val in marg.items()
+                            }
+                            p_risk, p_mel = _entity_probs_to_risk(entity_probs)
         else:
             p_risk, p_mel = estimate_risk_from_triage(parsed)
             entity_probs = {}
             logprobs_used = False
 
+        latency_ms = round((time.perf_counter() - t0) * 1000.0, 2)
         return EdgeVLMResult(
             raw_text=raw_text,
             thinking_trace=thought,
@@ -278,7 +402,9 @@ class EdgeVLMClient:
             p_risk_estimate=p_risk,
             p_melanoma_estimate=p_mel,
             logprobs_used=logprobs_used,
+            melanocytic_probs=mel_probs,
             entity_probs=entity_probs,
+            branches_probed=branches_probed,
             latency_ms=latency_ms,
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),

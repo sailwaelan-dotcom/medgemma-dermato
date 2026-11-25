@@ -3,6 +3,7 @@
 import argparse
 import dataclasses
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", type=Path, default=Path("configs/project.yaml"))
     parser.add_argument("--resume-from-checkpoint", type=str, default=None)
     parser.add_argument("--max-steps", type=int, default=-1)
+    parser.add_argument("--epochs", type=float, default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--per-device-batch-size", type=int, default=None)
+    parser.add_argument("--grad-accum", type=int, default=None)
+    parser.add_argument("--save-steps", type=int, default=None)
+    parser.add_argument("--eval-steps", type=int, default=None)
+    parser.add_argument("--logging-steps", type=int, default=10)
+    parser.add_argument("--download-workers", type=int, default=16)
     return parser.parse_args()
 
 
@@ -48,22 +57,41 @@ def _prepare_examples(
     records: list[ISICRecord],
     image_dir: Path,
     split_name: str,
+    workers: int = 16,
 ) -> list[dict[str, Any]]:
+    image_dir.mkdir(parents=True, exist_ok=True)
+    missing = [
+        rec
+        for rec in records
+        if not (
+            (image_dir / f"{rec.isic_id}.jpg").exists()
+            and (image_dir / f"{rec.isic_id}.jpg").stat().st_size > 0
+        )
+    ]
+    if missing:
+        print(
+            f"[{split_name}] Downloading {len(missing)} missing images with {workers} workers...",
+            flush=True,
+        )
+
+        def _dl(rec: ISICRecord) -> None:
+            with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+                _ensure_image(rec, image_dir, client)
+
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            list(pool.map(_dl, missing))
+
     examples: list[dict[str, Any]] = []
-    with httpx.Client(timeout=30.0) as client:
-        for idx, rec in enumerate(records, start=1):
-            img_path = _ensure_image(rec, image_dir, client)
-            examples.append(
-                {
-                    "isic_id": rec.isic_id,
-                    "image_path": str(img_path),
-                    "messages_json": json.dumps(
-                        build_triage_sft_messages(rec), ensure_ascii=False
-                    ),
-                }
-            )
-            if idx % 100 == 0 or idx == len(records):
-                print(f"[{split_name}] Cached {idx}/{len(records)} images...", flush=True)
+    for rec in records:
+        img_path = image_dir / f"{rec.isic_id}.jpg"
+        examples.append(
+            {
+                "isic_id": rec.isic_id,
+                "image_path": str(img_path),
+                "messages_json": json.dumps(build_triage_sft_messages(rec), ensure_ascii=False),
+            }
+        )
+    print(f"[{split_name}] Ready {len(examples)} examples.", flush=True)
     return examples
 
 
@@ -84,8 +112,12 @@ def main() -> None:
         f"Preparing {len(train_records)} train and {len(val_records)} val examples...",
         flush=True,
     )
-    train_examples = _prepare_examples(train_records, args.image_dir, "train")
-    val_examples = _prepare_examples(val_records, args.image_dir, "val")
+    train_examples = _prepare_examples(
+        train_records, args.image_dir, "train", workers=args.download_workers
+    )
+    val_examples = _prepare_examples(
+        val_records, args.image_dir, "val", workers=args.download_workers
+    )
 
     model_id = cfg.model.base_model_id
     bnb_config = BitsAndBytesConfig(
@@ -159,24 +191,29 @@ def main() -> None:
         else {"warmup_steps": cfg.qlora.warmup_ratio}
     )
 
+    save_steps = args.save_steps or cfg.qlora.save_steps
+    eval_steps = args.eval_steps or save_steps
+
     sft_config = SFTConfig(
         output_dir=str(args.output_dir),
-        num_train_epochs=cfg.qlora.num_train_epochs,
+        num_train_epochs=args.epochs or cfg.qlora.num_train_epochs,
         max_steps=args.max_steps,
-        per_device_train_batch_size=cfg.qlora.per_device_train_batch_size,
+        per_device_train_batch_size=(
+            args.per_device_batch_size or cfg.qlora.per_device_train_batch_size
+        ),
         per_device_eval_batch_size=1,
-        gradient_accumulation_steps=cfg.qlora.gradient_accumulation_steps,
+        gradient_accumulation_steps=args.grad_accum or cfg.qlora.gradient_accumulation_steps,
         gradient_checkpointing=True,
-        learning_rate=cfg.qlora.learning_rate,
+        learning_rate=args.lr or cfg.qlora.learning_rate,
         max_grad_norm=cfg.qlora.max_grad_norm,
         **warmup_kwargs,
         lr_scheduler_type="cosine",
-        logging_steps=10,
+        logging_steps=args.logging_steps,
         save_strategy="steps",
-        save_steps=cfg.qlora.save_steps,
+        save_steps=save_steps,
         save_total_limit=3,
         eval_strategy="steps" if val_examples else "no",
-        eval_steps=cfg.qlora.save_steps,
+        eval_steps=eval_steps,
         load_best_model_at_end=bool(val_examples),
         metric_for_best_model="eval_loss" if val_examples else None,
         greater_is_better=False if val_examples else None,
