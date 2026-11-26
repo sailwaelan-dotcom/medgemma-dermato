@@ -5,7 +5,7 @@
 > **Langue :** [English (README.md)](README.md) | **Français**  
 > **Positionnement réglementaire — Research Use Only (RUO) & Hors-MDR :** Ce dépôt est un démonstrateur d'architecture IA santé (*pre-analytical QA*, pré-triage calibré, explicabilité visuelle et rédaction structurée de fiche d'adressage). Il ne constitue **pas** un dispositif médical (UE MDR Classe IIa) et n'émet aucun diagnostic clinique autonome. Les poids de base `google/medgemma-1.5-4b-it` sont soumis aux conditions **Google Health AI Developer Foundations (HAI-DEF)**.
 
-Architecture hybride **100 % offline sur Edge** orchestrée par **`ClinicalTriageOrchestrator`** (pipeline déterministe borné à 6 étapes, voir [ADR-001](docs/ADR_001_deterministic_orchestration.md)) : **System 1 vision léger ONNX (`ConvNeXt-Tiny`, 5 centres)** + carte d'occlusion visuelle, **System 2 VLM médical (`MedGemma 1.5 4B QLoRA v1`, GGUF `Q8_0` avec `logprobs` 3-branches par règle de chaîne)**, **Pont Validateur Bidirectionnel SQLite ↔ Modèle (SHA-256 + anti-ancrage)**, et **Last-Mile Clinical Safety Harness à 6 verrous** évalué en aveugle sur **MSKCC Consecutive Biopsies 2020 (`n=200`)**.
+Architecture hybride **100 % offline sur Edge** orchestrée par **`ClinicalTriageOrchestrator`** (pipeline déterministe borné à 6 étapes, voir [ADR-001](docs/ADR_001_deterministic_orchestration.md) & [ADR-002](docs/ADR_002_target_production_architecture.md)) : **System 1 vision léger ONNX (`ConvNeXt-Tiny`, 5 centres)** + carte d'occlusion visuelle, **System 2 VLM médical (`MedGemma 1.5 4B QLoRA v1/v2`, GGUF `Q8_0` avec `logprobs` 3-branches par règle de chaîne)**, **Pont Validateur Bidirectionnel SQLite ↔ Modèle (SHA-256 + anti-ancrage)**, et **Last-Mile Clinical Safety Harness à 6 verrous** évalué en aveugle sur **MSKCC Consecutive Biopsies 2020 (`n=200`)**.
 
 ---
 
@@ -54,6 +54,7 @@ flowchart LR
 
 - **`Q4_K_M` rejeté en Sprint 4 :** conserve `100.0 %` de JSON valides mais s'effondre de **`-31.4 pts`** en sensibilité (`44.3 %` malins).
 - **Suite Adversariale (`13/13 PASS`) & `47/47` tests unitaires/intégration verts** en CI GitHub Actions.
+- **Décision d'Architecture ([ADR-002](docs/ADR_002_target_production_architecture.md)) :** le `BLOCK_DEPLOY` assumé sur `Q8_0` (`91.4 % < 95.0 %`) dicte la topologie de production **Tiered** (Edge CPU `System 1` + VPC HDS `BF16`, avec dégradation fail-safe en `AMBER`), l'encapsulation en **Model Bundles signés** (`T >= 1.0`) et le découplage du VLM hors du chemin critique de scoring en v3.
 
 ---
 

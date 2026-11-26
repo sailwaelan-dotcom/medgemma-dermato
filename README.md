@@ -17,11 +17,12 @@ A **100% offline Edge clinical workstation** combining a lightweight multi-cente
 
 ---
 
-## Three Engineering Decisions That Define This System
+## Four Architectural Decisions That Define This System
 
 1. **Catching Silent 4-Bit Clinical Collapse (`Q4_K_M` Rejected by CI/CD Gate):** Quantizing MedGemma 1.5 4B to `Q4_K_M` keeps **`100.0%` valid JSON** and clean-looking ECE (`0.164`), yet silently drops malignant sensitivity by **`-31.4 pts`** (`75.7% → 44.3%`, missing over half of melanomas). Standard format/perplexity checks miss this completely; our policy-as-code `DeploymentGate` blocks it automatically.
 2. **Bounded Deterministic Orchestration Over Unconstrained LLM Loops ([ADR-001](docs/ADR_001_deterministic_orchestration.md)):** As a certified *Google Cloud Professional Agentic Architect*, critical clinical routing is implemented as a deterministic, auditable 6-step pipeline (`ClinicalTriageOrchestrator`) — never an autonomous ReAct loop — guaranteeing that preflight QA, TTA instability checks, ABCDE red flags, and contradiction blockers cannot be skipped under prompt pressure.
 3. **Bidirectional SQLite ↔ Model Format Validator ([`db_model_bridge.py`](src/medgemma_dermato/db_model_bridge.py)):** Every stored exam is wrapped in a `schema_version="2.0"` envelope sealed with a canonical **SHA-256 integrity digest**. When linking a follow-up visit, the bridge strips PII (`patient_ref`, free-text clinician notes) and Jinja/control injection tokens, isolates prior verdicts from MedGemma's prompt to prevent **anchoring bias**, and passes `LongitudinalPriorDTO` strictly to deterministic post-inference rules (`LONGITUDINAL_BRIDGE_EVOLUTION`).
+4. **Governance-Driven Topology, Signed Model Bundles & VLM Decoupling ([ADR-002](docs/ADR_002_target_production_architecture.md)):** Because Barrier 6 honestly keeps Edge `Q8_0` (`v1` & `v2`) at `BLOCK_DEPLOY` (`91.4% < 95.0%`), production architecture mandates a **Tiered Topology** (Edge CPU `System 1` + sovereign HDS/VPC `BF16`, with fail-safe `AMBER` degradation), atomic **Signed Model Bundles** (`T >= 1.0`), and a v3 EU MDR roadmap that decouples generative VLMs from critical risk scoring.
 
 ---
 
@@ -110,7 +111,7 @@ docker compose up --build
 
 1. **Skin Tone Bias (Fitzpatrick V–VI):** Public ISIC cohorts strongly under-represent darker skin phototypes; no clinical generalization is claimed without dedicated prospective validation.
 2. **Spectrum Bias (MSKCC Biopsied Cohort):** `100%` of MSKCC benign lesions are hard mimics already selected for biopsy — systematically lowering apparent AUROC vs general screening (`0.93–0.98` across HIBA/DERM12345).
-3. **Edge `Q8_0` Gate:** Pure Edge `Q8_0` (v1) remains intentionally gated at `BLOCK_DEPLOY` (`91.4% < 95.0%`), whereas BF16 Option C passes at `95.7%` malignant / `97.4%` melanoma.
+3. **Edge `Q8_0` Gate:** Pure Edge `Q8_0` (`v1` & `v2`) remains intentionally gated at `BLOCK_DEPLOY` (`91.4% < 95.0%`), whereas BF16 Option C passes at `95.7%` malignant / `97.4%` melanoma — driving the tiered production topology and Signed Model Bundle contract in [ADR-002](docs/ADR_002_target_production_architecture.md).
 4. **Regulatory Status:** Strictly **RUO / Non-MDR** decision-support demonstrator.
 
 ---
@@ -121,7 +122,8 @@ docker compose up --build
 ├── app/                         # Offline FastAPI Cabinet App + 3-Tab UI (index.html)
 ├── configs/project.yaml         # Centralized splits, preflight, QLoRA & eval config
 ├── docs/
-│   ├── ADR_001_deterministic_orchestration.md  # PAA Architecture Decision Record
+│   ├── ADR_001_deterministic_orchestration.md  # PAA Architecture Decision Record (Orchestration)
+│   ├── ADR_002_target_production_architecture.md # Tiered Topology, Signed Bundles & VLM Decoupling
 │   └── assets/                  # Verified UI screenshots & SVG evaluation charts
 ├── Dockerfile & docker-compose.yml # Production containerization + optional llama.cpp VLM
 ├── scripts/                     # ISIC ingestion, QLoRA v1/v2, System 1 ONNX, GGUF & red-team benchmarks
