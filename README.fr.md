@@ -49,7 +49,8 @@ flowchart LR
 | 4. System 1 `ConvNeXt-Tiny` ONNX (5 centres) | `0.6537` | `84.3 %` (`59/70`) | `87.2 %` (`34/39`) | `39.1 %` | `80.4 %` | `0.2280` | — | `BLOCK` |
 | **5. Hybride BF16 (50/50) + Harness 3-Zones** | `0.6944` | **`95.7 %`** (`67/70`) | **`97.4 %`** (`38/39`) | **`30.4 %`** (`35/115`) | **`92.1 %`** | `0.1737` | **`43` (`14` cancers)** | **`PASS`** |
 | 6. Edge `Q8_0` 1-Pass Logprobs + ONNX (RTX 4080) | `0.6920` | `91.4 %` (`64/70`) | `94.9 %` (`37/39`) | `27.8 %` (`32/115`) | `84.2 %` | `0.1676` | **`57` (`15` cancers)** | `BLOCK` |
-| **7. Edge `Q8_0` 3-Branches Logprobs + ONNX (RTX 4080)** | `0.6976` *(S2 `0.7022`)* | `91.4 %` (`64/70`) | `94.9 %` (`37/39`) | **`30.4 %`** (`35/115`) | `85.4 %` | **`0.1594`** | **`52` (`15` cancers)** | **`BLOCK`** |
+| 7. Edge `v1 Q8_0` 3-Branches Logprobs + ONNX (RTX 4080) | `0.6976` *(S2 `0.7022`)* | `91.4 %` (`64/70`) | `94.9 %` (`37/39`) | `30.4 %` (`35/115`) | `85.4 %` | `0.1594` | `52` (`15` cancers) | `BLOCK` |
+| **8. Edge `v2 Q8_0` (5 Centres) 3-Branches + ONNX** | `0.6952` *(S2 **`0.7045`**)* | `91.4 %` (`64/70`) | `94.9 %` (`37/39`) | **`36.5 %`** (`42/115`) | **`87.5 %`** | **`0.1192`** | **`62` (`23` cancers)** | **`BLOCK`** |
 
 - **`Q4_K_M` rejeté en Sprint 4 :** conserve `100.0 %` de JSON valides mais s'effondre de **`-31.4 pts`** en sensibilité (`44.3 %` malins).
 - **Suite Adversariale (`13/13 PASS`) & `47/47` tests unitaires/intégration verts** en CI GitHub Actions.

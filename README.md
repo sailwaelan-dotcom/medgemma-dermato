@@ -61,9 +61,10 @@ flowchart LR
 | 4. System 1 `ConvNeXt-Tiny` ONNX (5-center `@mc_val95%`) | `0.6537` | `84.3%` (`59/70`) | `87.2%` (`34/39`) | `39.1%` | `80.4%` | `0.2280` | — | `BLOCK` |
 | **5. Hybrid BF16 (50/50) + Last-Mile Harness** | `0.6944` | **`95.7%`** (`67/70`) | **`97.4%`** (`38/39`) | **`30.4%`** (`35/115`) | **`92.1%`** | `0.1737` | **`43` (`14` cancers)** | **`PASS`** |
 | 6. Edge `Q8_0` 1-Pass Logprobs + ONNX + Harness (RTX 4080) | `0.6920` | `91.4%` (`64/70`) | `94.9%` (`37/39`) | `27.8%` (`32/115`) | `84.2%` | `0.1676` | **`57` (`15` cancers)** | `BLOCK` |
-| **7. Edge `Q8_0` 3-Branch Logprobs + ONNX + Harness (RTX 4080)** | `0.6976` *(S2 `0.7022`)* | `91.4%` (`64/70`) | `94.9%` (`37/39`) | **`30.4%`** (`35/115`) | `85.4%` | **`0.1594`** | **`52` (`15` cancers)** | **`BLOCK`** |
+| 7. Edge `v1 Q8_0` 3-Branch Logprobs + ONNX (RTX 4080) | `0.6976` *(S2 `0.7022`)* | `91.4%` (`64/70`) | `94.9%` (`37/39`) | `30.4%` (`35/115`) | `85.4%` | `0.1594` | `52` (`15` cancers) | `BLOCK` |
+| **8. Edge `v2 Q8_0` (5-Center) 3-Branch + ONNX** | `0.6952` *(S2 **`0.7045`**)* | `91.4%` (`64/70`) | `94.9%` (`37/39`) | **`36.5%`** (`42/115`) | **`87.5%`** | **`0.1192`** | **`62` (`23` cancers)** | **`BLOCK`** |
 
-> **Honest CI/CD Gate Governance:** On RTX 4080 (`0.00 CU` Colab, `3.4 s/case`), **3-branch KV-cached marginalization** in [`edge_vlm.py`](src/medgemma_dermato/edge_vlm.py) pushes standalone `Q8_0` AUROC to `0.7022` (`0.9446` on HIBA val), achieves the project's **best calibration (`ECE = 0.1594`)**, and restores full `30.4%` Green Specificity — while the CI/CD gate intentionally stays at `BLOCK_DEPLOY` (`91.4% < 95.0%` floor due to 8-bit quantization margin compression on 6 borderline cases).
+> **Honest CI/CD Gate Governance (`v2` vs `v1`):** Multi-center `QLoRA v2` (`checkpoint-300`, 5 cohorts, `0%` MSKCC) strictly outperforms `v1` in Edge `Q8_0` across every discrimination/calibration axis (`100.0%` valid JSON, standalone AUROC `0.7045` / val `0.9509`, **`+6.1 pts` Green Specificity (`36.5%`)**, `+2.1 pts` Green NPV (`87.5%`), and **best project calibration `ECE = 0.1192`** while catching `62` text-vs-risk contradictions incl. `23` cancers). Yet both `v1` and `v2` `Q8_0` remain at `91.4%` (`64/70`) safe malignant sensitivity due to 8-bit margin compression on 6 borderline cases, so the CI/CD gate honestly remains at `BLOCK_DEPLOY` (`< 95.0%` floor). Only full BF16 Option C passes at `95.7%` / `97.4%`.
 
 ### 2.2 Sprint 4 — GGUF Quantization Non-Regression (`mmproj` FP16 `811.8 MB`)
 

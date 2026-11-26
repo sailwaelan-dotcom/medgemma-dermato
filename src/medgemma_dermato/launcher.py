@@ -35,8 +35,8 @@ def _find_best_gguf(
     if explicit_gguf and explicit_mmproj:
         return explicit_gguf, explicit_mmproj
 
-    # Prefer v2 only if explicitly promoted via env or present after validation
-    search_dirs = [Path("checkpoints/gguf"), Path("checkpoints/gguf_v2")]
+    # Prefer multi-center QLoRA v2 GGUF if downloaded locally, falling back to v1
+    search_dirs = [Path("checkpoints/gguf_v2"), Path("checkpoints/gguf")]
     for d in search_dirs:
         if not d.exists():
             continue
